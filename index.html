@@ -635,7 +635,7 @@ footer{
 const TROY = 31.1035;
 const LOCAL_MARGIN = 1.03; // Egyptian gold market premium ~3%
 const RSS2J = 'https://api.rss2json.com/v1/api.json?rss_url=';
-const PROXIES = ['https://corsproxy.io/?','https://api.allorigins.win/raw?url='];
+/* PROXIES defined below in auto-fetch engine */
 const WX = {0:'☀️',1:'🌤️',2:'⛅',3:'☁️',45:'🌫️',51:'🌧️',61:'🌧️',65:'🌧️',71:'🌨️',80:'🌧️',95:'⛈️'};
 
 /* ──── STATE ──── */
@@ -743,27 +743,61 @@ function showApiMsg(msg,type){
   if(e) e.innerHTML=`<div class="api-msg ${type}">${msg}</div>`;
 }
 async function testKeys(){
-  showApiMsg('🔍 جاري الاختبار...','info');
-  const msgs=[];
-  if(KEYS.gold){
-    try{
-      const r=await fetch('https://www.goldapi.io/api/XAU/USD',{headers:{'x-access-token':KEYS.gold}});
-      const d=await r.json();
-      msgs.push(d.price?`✅ GoldAPI: $${d.price.toFixed(2)}`:'❌ GoldAPI: مفتاح خاطئ');
-    }catch(e){ msgs.push('❌ GoldAPI: '+e.message); }
-  } else msgs.push('⚠️ GoldAPI: لم يُدخل');
-  try{
-    const r=await fetch('https://open.er-api.com/v6/latest/USD');
-    const d=await r.json();
-    msgs.push(d.rates?.EGP?`✅ سعر الصرف: ${d.rates.EGP.toFixed(2)} EGP/USD`:'❌ سعر الصرف: فشل');
-  }catch{ msgs.push('❌ سعر الصرف: فشل'); }
-  try{
-    const r=await fetch('https://api.metals.live/v1/spot/gold');
-    const d=await r.json();
-    const p=d[0]?.price||d.price||d[0]?.XAU;
-    msgs.push(p?`✅ metals.live: $${(+p).toFixed(2)}`:'❌ metals.live: لا بيانات');
-  }catch{ msgs.push('❌ metals.live: فشل'); }
-  showApiMsg(msgs.join(' · '), msgs.some(m=>m.startsWith('✅'))?'ok':'err');
+  showApiMsg('🔍 جاري اختبار جميع المصادر...','info');
+  const tests=[
+    {
+      name:'GoldPrice.org',
+      fn:async()=>{
+        const r=await fetchTimeout('https://data-asg.goldprice.org/dbXRates/USD',{},7000);
+        const d=await r.json();
+        const item=d?.items?.find(i=>i.curr==='XAU');
+        return item?.usdPrice?`$${(+item.usdPrice).toFixed(2)}`:null;
+      }
+    },
+    {
+      name:'metals.live',
+      fn:async()=>{
+        const r=await fetchTimeout('https://api.metals.live/v1/spot/gold',{},7000);
+        const d=await r.json();
+        const p=Array.isArray(d)?d[0]?.price:d?.price;
+        return p?`$${(+p).toFixed(2)}`:null;
+      }
+    },
+    {
+      name:'open.er-api (EGP)',
+      fn:async()=>{
+        const r=await fetchTimeout('https://open.er-api.com/v6/latest/USD',{},7000);
+        const d=await r.json();
+        return d?.rates?.EGP?`${d.rates.EGP.toFixed(2)} EGP/USD`:null;
+      }
+    },
+    {
+      name:'Frankfurter (EUR)',
+      fn:async()=>{
+        const r=await fetchTimeout('https://api.frankfurter.app/latest?from=USD&to=EGP',{},7000);
+        const d=await r.json();
+        return d?.rates?.EGP?`${d.rates.EGP.toFixed(2)} EGP`:null;
+      }
+    },
+    {
+      name:'Yahoo BZ=F (proxy)',
+      fn:async()=>{
+        const d=await proxyFetch('https://query1.finance.yahoo.com/v8/finance/chart/BZ=F?interval=5m&range=1d');
+        const p=d?.chart?.result?.[0]?.meta?.regularMarketPrice;
+        return p?`$${(+p).toFixed(2)}/bbl`:null;
+      }
+    },
+  ];
+  const results=await Promise.allSettled(tests.map(async t=>{
+    try{ const v=await t.fn(); return {name:t.name,val:v}; }
+    catch{ return {name:t.name,val:null}; }
+  }));
+  const msgs=results.map(r=>{
+    const {name,val}=r.value;
+    return val?`✅ ${name}: ${val}`:`❌ ${name}: محجوب`;
+  });
+  const ok=msgs.filter(m=>m.startsWith('✅')).length;
+  showApiMsg(`(${ok}/${msgs.length} مصدر يعمل) · `+msgs.join(' · '), ok>0?'ok':'err');
 }
 
 /* ──── GOLD SPARKLINE ──── */
@@ -784,74 +818,157 @@ function updateSparkline(){
   if(area) area.setAttribute('points',areaStart+pts+areaEnd);
 }
 
-/* ──── FETCH WITH PROXY ──── */
-async function fetchWithProxy(url){
-  for(const px of PROXIES){
+/* ══════════════════════════════════════════════════════
+   AUTO-FETCH ENGINE — يجلب بيانات حية تلقائياً
+   بدون أي API key — يجرّب مصادر متعددة واحدة تلو الأخرى
+══════════════════════════════════════════════════════ */
+
+/* ── Timeout wrapper ── */
+function fetchTimeout(url, opts={}, ms=8000){
+  const ctrl=new AbortController();
+  const id=setTimeout(()=>ctrl.abort(),ms);
+  return fetch(url,{...opts,signal:ctrl.signal}).finally(()=>clearTimeout(id));
+}
+
+/* ── CORS Proxy chain (يجرّبهم بالترتيب) ── */
+const PROXIES=[
+  u=>`https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+  u=>`https://corsproxy.io/?${encodeURIComponent(u)}`,
+  u=>`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+  u=>`https://thingproxy.freeboard.io/fetch/${u}`,
+];
+
+async function proxyFetch(url, parseJSON=true){
+  for(const mkProxy of PROXIES){
     try{
-      const r=await fetch(px+encodeURIComponent(url));
+      const r=await fetchTimeout(mkProxy(url),{},9000);
       if(!r.ok) continue;
-      const d=await r.json();
-      return d;
+      return parseJSON ? await r.json() : await r.text();
     }catch{}
   }
   return null;
 }
 
-/* ──── GOLD PRICE ──── */
+/* ═══════════════════════════════════
+   💰 GOLD PRICE — 5 مصادر مجانية
+═══════════════════════════════════ */
 async function fetchGoldPrice(){
-  // 1. Try GoldAPI.io with user key (most accurate)
+
+  /* 1 ▸ GoldAPI.io — أدق مصدر (يحتاج مفتاح اختياري) */
   if(KEYS.gold){
     try{
-      const r=await fetch('https://www.goldapi.io/api/XAU/USD',{headers:{'x-access-token':KEYS.gold}});
+      const r=await fetchTimeout('https://www.goldapi.io/api/XAU/USD',
+        {headers:{'x-access-token':KEYS.gold}});
       const d=await r.json();
-      if(d.price) return {oz:d.price, prev:d.prev_close_price||d.price, src:'GoldAPI.io ✅'};
+      if(d.price) return {oz:+d.price, prev:+(d.prev_close_price||d.price), src:'GoldAPI.io'};
     }catch{}
   }
-  // 2. Try metals.live (free, no key)
+
+  /* 2 ▸ GoldPrice.org — مجاني تماماً، CORS مفتوح */
   try{
-    const r=await fetch('https://api.metals.live/v1/spot/gold');
+    const r=await fetchTimeout('https://data-asg.goldprice.org/dbXRates/USD',{},7000);
     const d=await r.json();
-    const p=d[0]?.price||d.price||d[0]?.XAU;
-    if(p) return {oz:+p, prev:(+p)*0.999, src:'metals.live ✅'};
+    const item=d?.items?.find(i=>i.curr==='XAU');
+    if(item?.usdPrice) return {oz:+item.usdPrice, prev:+(item.openPrice||item.usdPrice), src:'GoldPrice.org'};
   }catch{}
-  // 3. Try Yahoo Finance for GC=F via proxy
+
+  /* 3 ▸ metals.live — مجاني، لا يحتاج مفتاح */
   try{
-    const d=await fetchWithProxy('https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=1d');
-    const meta=d?.chart?.result?.[0]?.meta;
-    if(meta?.regularMarketPrice) return {oz:meta.regularMarketPrice, prev:meta.previousClose||meta.regularMarketPrice, src:'Yahoo Finance ✅'};
+    const r=await fetchTimeout('https://api.metals.live/v1/spot/gold',{},7000);
+    const d=await r.json();
+    const p=Array.isArray(d)?d[0]?.price:d?.price;
+    if(p) return {oz:+p, prev:(+p)*0.9985, src:'metals.live'};
   }catch{}
+
+  /* 4 ▸ Yahoo Finance GC=F عبر proxy */
+  try{
+    const d=await proxyFetch('https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=1d');
+    const m=d?.chart?.result?.[0]?.meta;
+    if(m?.regularMarketPrice) return {oz:+m.regularMarketPrice, prev:+(m.previousClose||m.regularMarketPrice), src:'Yahoo Finance'};
+  }catch{}
+
+  /* 5 ▸ Frankfurter.app gold fallback (XAU) */
+  try{
+    const r=await fetchTimeout('https://api.frankfurter.app/latest?from=XAU&to=USD',{},7000);
+    const d=await r.json();
+    if(d?.rates?.USD) return {oz:+(1/d.rates.USD).toFixed(2)*1000, prev:+(1/d.rates.USD).toFixed(2)*1000, src:'Frankfurter'};
+  }catch{}
+
   return null;
 }
 
-/* ──── OIL PRICE ──── */
+/* ═══════════════════════════════════
+   💵 EXCHANGE RATES — 3 مصادر
+═══════════════════════════════════ */
+async function fetchRates(){
+  /* 1 ▸ open.er-api.com — مجاني، CORS مفتوح */
+  try{
+    const r=await fetchTimeout('https://open.er-api.com/v6/latest/USD',{},8000);
+    const d=await r.json();
+    if(d?.rates?.EGP) return {...d.rates, _src:'open.er-api'};
+  }catch{}
+
+  /* 2 ▸ Frankfurter.app — بنك أوروبا المركزي، مجاني */
+  try{
+    const r=await fetchTimeout('https://api.frankfurter.app/latest?from=USD&to=EGP,EUR,SAR,AED,GBP,TRY',{},8000);
+    const d=await r.json();
+    if(d?.rates?.EGP) return {...d.rates, _src:'Frankfurter'};
+  }catch{}
+
+  /* 3 ▸ fxratesapi.com — مجاني */
+  try{
+    const r=await fetchTimeout('https://api.fxratesapi.com/latest?base=USD&currencies=EGP,EUR,SAR,AED',{},8000);
+    const d=await r.json();
+    if(d?.rates?.EGP) return {...d.rates, _src:'FXRates'};
+  }catch{}
+
+  /* Fallback قيم تقريبية */
+  return {EGP:50.5, EUR:0.92, SAR:3.75, AED:3.67, _src:'fallback'};
+}
+
+/* ═══════════════════════════════════
+   🛢️ OIL — Yahoo Finance عبر proxy
+═══════════════════════════════════ */
 async function fetchOilPrice(){
-  // Try Yahoo Finance for Brent (BZ=F) and WTI (CL=F)
   const tryOil=async(sym)=>{
-    const d=await fetchWithProxy(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=5m&range=1d`);
-    const meta=d?.chart?.result?.[0]?.meta;
-    if(meta?.regularMarketPrice) return {price:meta.regularMarketPrice, prev:meta.previousClose||meta.regularMarketPrice};
+    try{
+      /* Direct first */
+      const r=await fetchTimeout(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=5m&range=1d`,{},7000);
+      if(r.ok){
+        const d=await r.json();
+        const m=d?.chart?.result?.[0]?.meta;
+        if(m?.regularMarketPrice) return {price:+m.regularMarketPrice, prev:+(m.previousClose||m.regularMarketPrice)};
+      }
+    }catch{}
+    /* Fallback via proxy */
+    try{
+      const d=await proxyFetch(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=5m&range=1d`);
+      const m=d?.chart?.result?.[0]?.meta;
+      if(m?.regularMarketPrice) return {price:+m.regularMarketPrice, prev:+(m.previousClose||m.regularMarketPrice)};
+    }catch{}
     return null;
   };
   const [brent,wti]=await Promise.all([tryOil('BZ=F'),tryOil('CL=F')]);
   return {brent,wti};
 }
 
-/* ──── SILVER ──── */
+/* ═══════════════════════════════════
+   🥈 SILVER
+═══════════════════════════════════ */
 async function fetchSilver(){
   try{
-    const r=await fetch('https://api.metals.live/v1/spot/silver');
+    const r=await fetchTimeout('https://api.metals.live/v1/spot/silver',{},7000);
     const d=await r.json();
-    const p=d[0]?.price||d.price;
+    const p=Array.isArray(d)?d[0]?.price:d?.price;
     if(p) return +p;
   }catch{}
+  /* Fallback via proxy */
+  try{
+    const d=await proxyFetch('https://data-asg.goldprice.org/dbXRates/USD');
+    const item=d?.items?.find(i=>i.curr==='XAG');
+    if(item?.usdPrice) return +item.usdPrice;
+  }catch{}
   return null;
-}
-
-/* ──── EXCHANGE RATES ──── */
-async function fetchRates(){
-  const r=await fetch('https://open.er-api.com/v6/latest/USD');
-  const d=await r.json();
-  return d.rates;
 }
 
 /* ──── UPDATE GOLD UI ──── */
@@ -931,28 +1048,42 @@ function updateOilUI(brent,wti){
   }
 }
 
-/* ──── LOAD PRICES ──── */
+/* ──── LOAD PRICES (auto, no API key required) ──── */
 async function loadPrices(){
-  setConn('warn','يتحقق من البيانات...');
+  setConn('warn','جاري جلب البيانات الحية...');
   try{
-    const [goldData, rates, {brent,wti}, silver] = await Promise.all([
+    const [goldData, rates, oilData, silver] = await Promise.all([
       fetchGoldPrice(), fetchRates(), fetchOilPrice(), fetchSilver()
     ]);
-    if(goldData && rates){
-      updateGoldUI(goldData.oz, goldData.prev, rates, goldData.src);
-      setConn('ok','متصل ✅');
-    } else if(goldData){
-      updateGoldUI(goldData.oz, goldData.prev, {EGP:49.5}, goldData.src);
-      setConn('warn','ذهب ✅ · سعر الصرف ⚠️');
+    const {brent,wti}=oilData||{};
+    const sources=[];
+
+    if(goldData){
+      updateGoldUI(goldData.oz, goldData.prev, rates||{EGP:50.5}, goldData.src);
+      sources.push('ذهب: '+goldData.src);
     } else {
-      setConn('err','تعذّر جلب بيانات الذهب');
+      setEl('g24','—'); setEl('g21','—'); setEl('g18','—'); setEl('g14','—');
     }
+
+    if(rates?._src) sources.push('صرف: '+rates._src);
     updateOilUI(brent,wti);
+    if(brent) sources.push('نفط: Yahoo');
+
     if(silver){
       const ms=$('m-silver'); if(ms) ms.textContent='$'+silver.toFixed(2);
     }
+
+    if(goldData || brent){
+      setConn('ok', sources.join(' · ') || 'متصل');
+    } else {
+      setConn('err','المصادر محجوبة — جرّب شبكة مختلفة');
+    }
+
     if(brent){ const mc=$('mc-brent'); if(mc) mc.innerHTML=chgHTML(brent.price,brent.prev); }
-    if(!brent&&!wti){ const mb=$('m-brent'),mw=$('m-wti'); if(mb) mb.textContent='تحقق من Proxy'; if(mw) mw.textContent='تحقق من Proxy'; }
+    if(!brent&&!wti){
+      const mb=$('m-brent'),mw=$('m-wti');
+      if(mb) mb.textContent='جاري...'; if(mw) mw.textContent='جاري...';
+    }
   }catch(e){
     setConn('err','خطأ: '+e.message);
     console.error('Price load error:',e);
