@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>نظرة — خريطة عربية حيّة لمتابعة النزاعات</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Cairo', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    * { font-family: 'Cairo', sans-serif; }
+    html { scroll-behavior: smooth; }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.4); }
+    }
+    .live-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+  </style>
+</head>
+<body class="bg-slate-950">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    function NazraArabicSite() {
+      const features = [
+        {
+          title: "خريطة النزاعات المباشرة",
+          icon: "🗺️",
+          description:
+            "متابعة لحظية للأحداث الساخنة، التحركات العسكرية، والتطورات الميدانية مع إبراز مستوى الخطورة بشكل واضح.",
+        },
+        {
+          title: "تتبع الطيران العسكري",
+          icon: "✈️",
+          description:
+            "عرض تحركات الطائرات العسكرية وطائرات النقل والاستطلاع في الوقت الفعلي ضمن واجهة سهلة القراءة.",
+        },
+        {
+          title: "تتبع السفن والقطع البحرية",
+          icon: "🚢",
+          description:
+            "رصد مواقع السفن والقطع البحرية ومسارات الملاحة المهمة مع التركيز على المناطق الحساسة.",
+        },
+        {
+          title: "تجميع الأخبار المفتوحة",
+          icon: "📰",
+          description:
+            "تجميع أحدث الأخبار العاجلة من مصادر متعددة في لوحة موحدة تساعد على فهم الصورة بسرعة.",
+        },
+        {
+          title: "الطقس والكوارث",
+          icon: "🌩️",
+          description:
+            "مراقبة العواصف، الزلازل، الحرائق، وصور الأقمار الصناعية والتنبيهات الجوية في المناطق المتأثرة.",
+        },
+        {
+          title: "البث المباشر والمصادر المرئية",
+          icon: "📡",
+          description:
+            "إمكانية عرض قنوات إخبارية وبثوث مباشرة وكاميرات حية لدعم المتابعة البصرية للأحداث.",
+        },
+        {
+          title: "طبقات البنية التحتية",
+          icon: "🔌",
+          description:
+            "إظهار طبقات مثل القواعد، خطوط الأنابيب، الكابلات البحرية، ومحطات الطاقة لفهم السياق الاستراتيجي.",
+        },
+        {
+          title: "لوحة متابعة إقليمية",
+          icon: "🌍",
+          description:
+            "تقسيم جغرافي واضح يسهّل الانتقال بين المناطق والأزمات المختلفة من شاشة واحدة.",
+        },
+      ];
+
+      const regions = [
+        { name: "الشرق الأوسط وشمال أفريقيا", items: "فلسطين، إيران، سوريا، اليمن، الخليج", hot: true },
+        { name: "أوروبا الشرقية", items: "أوكرانيا، بولندا، البلقان، البلطيق", hot: true },
+        { name: "أوروبا الغربية", items: "المملكة المتحدة، فرنسا، ألمانيا، الناتو", hot: false },
+        { name: "أفريقيا جنوب الصحراء", items: "النزاعات، الأزمات، والتحولات السياسية", hot: false },
+        { name: "روسيا والقوقاز", items: "التحركات العسكرية والتطورات الجيوسياسية", hot: true },
+        { name: "آسيا الوسطى", items: "كازاخستان، أفغانستان، والتوترات الإقليمية", hot: false },
+        { name: "الهند وجنوب آسيا", items: "الهند، باكستان، والتوترات الحدودية", hot: false },
+        { name: "شرق آسيا", items: "الصين، مضيق تايوان، الكوريتان، اليابان", hot: true },
+        { name: "جنوب شرق آسيا", items: "بحر الصين الجنوبي ودول الآسيان", hot: false },
+        { name: "الأمريكتان", items: "الولايات المتحدة، كندا، أمريكا اللاتينية", hot: false },
+        { name: "أوقيانوسيا والمحيط الهادئ", items: "أستراليا، نيوزيلندا، وجزر المحيط الهادئ", hot: false },
+      ];
+
+      const stats = [
+        { label: "مصادر إخبارية", value: "+40" },
+        { label: "مناطق متابعة", value: "11" },
+        { label: "طبقات معلومات", value: "+50" },
+        { label: "تحديثات", value: "مباشر" },
+      ];
+
+      return (
+        <div dir="rtl" className="min-h-screen bg-slate-950 text-slate-100">
+
+          {/* ===== HERO ===== */}
+          <section className="relative overflow-hidden border-b border-white/10">
+            <div className="absolute inset-0"
+              style={{background: "radial-gradient(circle at top, rgba(56,189,248,0.18), transparent 35%), radial-gradient(circle at left, rgba(34,197,94,0.12), transparent 25%), linear-gradient(to bottom, rgba(15,23,42,0.65), rgba(2,6,23,1))"}}
+            />
+            <div className="relative mx-auto max-w-7xl px-6 py-8 lg:px-8">
+
+              {/* NAV */}
+              <div className="mb-12 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-400/15 ring-1 ring-cyan-300/20 backdrop-blur">
+                    <span className="text-lg font-bold text-cyan-300">ن</span>
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold tracking-tight">نظرة</p>
+                    <p className="text-sm text-slate-400">منصة عربية للمراقبة الجيوسياسية والمتابعة المباشرة</p>
+                  </div>
+                </div>
+                <nav className="hidden items-center gap-6 text-sm text-slate-300 md:flex">
+                  <a href="#features" className="transition hover:text-white">المميزات</a>
+                  <a href="#regions" className="transition hover:text-white">المناطق</a>
+                  <a href="#about" className="transition hover:text-white">عن المنصة</a>
+                </nav>
+              </div>
+
+              {/* HERO GRID */}
+              <div className="grid items-center gap-10 lg:grid-cols-2">
+                <div>
+                  <div className="mb-5 inline-flex items-center rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-200">
+                    <span className="live-dot ml-2 inline-block h-2 w-2 rounded-full bg-emerald-400"></span>
+                    متابعة مباشرة للأزمات والتحركات والتقارير المفتوحة
+                  </div>
+                  <h1 className="max-w-4xl text-4xl font-black leading-tight tracking-tight sm:text-5xl lg:text-6xl">
+                    نظرة — خريطة عربية حيّة لمتابعة{" "}
+                    <span className="text-cyan-300">النزاعات</span>{" "}
+                    والأخبار العاجلة
+                  </h1>
+                  <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-300">
+                    منصة تفاعلية مجانية لعرض النزاعات العالمية، الأخبار العاجلة، التحركات العسكرية، والطقس والكوارث،
+                    بالاعتماد على المصادر المفتوحة ضمن واجهة عربية واضحة وسريعة.
+                  </p>
+                  <div className="mt-8 flex flex-wrap gap-4">
+                    <a href="#regions"
+                      className="rounded-2xl bg-cyan-400 px-6 py-3 text-sm font-bold text-slate-950 shadow-2xl shadow-cyan-500/20 transition hover:-translate-y-0.5">
+                      استعرض المناطق
+                    </a>
+                    <a href="#features"
+                      className="rounded-2xl border border-white/15 bg-white/5 px-6 py-3 text-sm font-bold text-white backdrop-blur transition hover:bg-white/10">
+                      تعرّف على المميزات
+                    </a>
+                  </div>
+                </div>
+
+                {/* STATS CARD */}
+                <div className="grid gap-4 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
+                  <div className="rounded-3xl border border-cyan-400/20 bg-slate-900/80 p-5">
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-slate-400">الوضع الحالي</p>
+                        <p className="text-lg font-bold">لوحة متابعة مباشرة</p>
+                      </div>
+                      <span className="flex items-center gap-2 rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-semibold text-emerald-300">
+                        <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                        مباشر الآن
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {stats.map((stat) => (
+                        <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                          <div className="text-2xl font-black text-white">{stat.value}</div>
+                          <div className="mt-1 text-sm text-slate-400">{stat.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
+                    <p className="mb-3 text-sm font-semibold text-slate-300">أبرز ما تعرضه المنصة</p>
+                    <div className="space-y-3 text-sm text-slate-300">
+                      <div className="rounded-2xl bg-white/5 p-3">الأحداث العاجلة من النقاط الساخنة</div>
+                      <div className="rounded-2xl bg-white/5 p-3">مسارات الطيران والسفن والتحركات المهمة</div>
+                      <div className="rounded-2xl bg-white/5 p-3">دمج الأخبار المفتوحة والبث الحي والخرائط</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ===== FEATURES ===== */}
+          <section id="features" className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
+            <div className="mb-10 max-w-3xl">
+              <p className="mb-3 text-sm font-semibold text-cyan-300">المميزات</p>
+              <h2 className="text-3xl font-black tracking-tight sm:text-4xl">كل ما تحتاجه في واجهة واحدة</h2>
+              <p className="mt-4 text-slate-400">
+                تم تصميم نظرة لتمنح المستخدم العربي نظرة شاملة وسريعة على التطورات الجيوسياسية والميدانية من خلال تقسيم واضح ومكونات سهلة التوسع.
+              </p>
+            </div>
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+              {features.map((feature) => (
+                <div
+                  key={feature.title}
+                  className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-lg shadow-black/20 transition hover:-translate-y-1 hover:bg-white/[0.07] cursor-default"
+                >
+                  <div className="mb-3 text-2xl">{feature.icon}</div>
+                  <h3 className="mb-3 text-lg font-bold">{feature.title}</h3>
+                  <p className="text-sm leading-7 text-slate-400">{feature.description}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* ===== REGIONS ===== */}
+          <section id="regions" className="border-y border-white/10 bg-white/[0.02]">
+            <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
+              <div className="mb-10 max-w-3xl">
+                <p className="mb-3 text-sm font-semibold text-cyan-300">المناطق الإقليمية</p>
+                <h2 className="text-3xl font-black tracking-tight sm:text-4xl">انتقل مباشرة إلى المنطقة التي تهمك</h2>
+                <p className="mt-4 text-slate-400">
+                  تقسيم جغرافي واضح بصياغة عربية وهوية بسيطة وأكثر وضوحًا.
+                </p>
+              </div>
+              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                {regions.map((region) => (
+                  <a
+                    key={region.name}
+                    href="#"
+                    className="group rounded-3xl border border-white/10 bg-slate-900/70 p-5 transition hover:border-cyan-300/30 hover:bg-slate-900"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="text-lg font-bold group-hover:text-cyan-300">{region.name}</h3>
+                          {region.hot && (
+                            <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-semibold text-red-400">
+                              <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-red-400"></span>
+                              ساخن
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-sm leading-7 text-slate-400">{region.items}</p>
+                      </div>
+                      <span className="flex-shrink-0 rounded-xl bg-white/5 px-3 py-2 text-sm text-slate-300 group-hover:bg-cyan-400/10 group-hover:text-cyan-300 transition">↗</span>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* ===== ABOUT ===== */}
+          <section id="about" className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
+            <div className="grid gap-8 lg:grid-cols-2">
+              <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-7">
+                <p className="mb-3 text-sm font-semibold text-cyan-300">عن نظرة</p>
+                <h2 className="text-3xl font-black tracking-tight">نسخة عربية بروح حديثة</h2>
+                <p className="mt-5 leading-8 text-slate-300">
+                  هذه الصفحة مستوحاة من فكرة الموقع المرجعي الذي يقدّم لوحة متابعة للأزمات والنزاعات العالمية، لكنها هنا معرّبة بالكامل ومهيأة للعرض من اليمين إلى اليسار، مع هوية اسمية جديدة تحمل اسم «نظرة».
+                </p>
+                <p className="mt-4 leading-8 text-slate-400">
+                  يمكنك لاحقًا ربط هذه الواجهة بخرائط تفاعلية، API للأخبار، مصادر بث مباشر، أو بيانات جغرافية لحظية حتى تصبح منصة كاملة وليست مجرد واجهة تعريفية.
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-cyan-400/20 bg-cyan-400/10 p-7">
+                <p className="mb-4 text-sm font-semibold text-cyan-100">اقتراحات للتطوير</p>
+                <ul className="space-y-3">
+                  {[
+                    "إضافة خريطة تفاعلية باستخدام Mapbox أو Leaflet.",
+                    "ربط الأخبار بمصادر RSS أو واجهات APIs موثوقة.",
+                    "إنشاء صفحة منفصلة لكل إقليم بدل روابط تجريبية.",
+                    "إضافة شريط بحث وفلترة حسب نوع الحدث أو الدولة.",
+                    "دمج الوضع الليلي/النهاري ولوحة تحكم إدارية.",
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm leading-7 text-cyan-50/90">
+                      <span className="mt-1 flex-shrink-0 flex h-5 w-5 items-center justify-center rounded-full bg-cyan-400/20 text-xs font-bold text-cyan-300">{i + 1}</span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          {/* ===== FOOTER ===== */}
+          <footer className="border-t border-white/10 bg-slate-950">
+            <div className="mx-auto max-w-7xl px-6 py-8 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-cyan-400/15 ring-1 ring-cyan-300/20">
+                  <span className="text-sm font-bold text-cyan-300">ن</span>
+                </div>
+                <span className="text-sm font-semibold text-slate-300">نظرة</span>
+              </div>
+              <p className="text-sm text-slate-500">منصة عربية مفتوحة لمتابعة الأحداث الجيوسياسية والنزاعات العالمية</p>
+            </div>
+          </footer>
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<NazraArabicSite />);
+  </script>
+</body>
+</html>

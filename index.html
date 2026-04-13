@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>نظرة | الشرق الأوسط — بيانات حية مباشرة</title>
+<!-- D3 and TopoJSON loaded as regular scripts (not ES modules) so map works on local file:// -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+<style>
+:root{
+  --bg:#0a0a0a;--bg2:#141414;--bg3:#1a1a1a;--bg4:#111111;
+  --border:#2a2a2a;--border2:#3a3a3a;--border3:#444444;
+  --text:#e8e8e8;--text2:#888888;--text3:#555555;
+  --red:#ff4444;--orange:#ff7722;--yellow:#ffaa00;
+  --green:#44ff88;--green2:#00cc66;--cyan:#4488ff;
+  --purple:#aa44ff;--gold:#f5c518;
+}
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Cairo',sans-serif;}
+html{scroll-behavior:smooth;}
+body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+a{color:inherit;text-decoration:none;}
+button{cursor:pointer;font-family:'Cairo',sans-serif;}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:3px;height:3px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+
+/* ══ FLASH ANIMATIONS ══ */
+@keyframes flashUp{
+  0%{background:rgba(0,255,136,.0);}
+  30%{background:rgba(0,255,136,.25);}
+  100%{background:rgba(0,255,136,.0);}
+}
+@keyframes flashDown{
+  0%{background:rgba(255,51,51,.0);}
+  30%{background:rgba(255,51,51,.2);}
+  100%{background:rgba(255,51,51,.0);}
+}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(1.5);}}
+@keyframes spin{to{transform:rotate(360deg);}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(0,212,255,.4);}70%{box-shadow:0 0 0 6px rgba(0,212,255,.0);}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
+
+.flash-up{animation:flashUp .6s ease;}
+.flash-down{animation:flashDown .6s ease;}
+
+/* ══ HEADER ══ */
+#hdr{
+  position:sticky;top:0;z-index:200;
+  background:rgba(6,13,11,.98);border-bottom:1px solid var(--border);
+  backdrop-filter:blur(16px);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.4rem 1rem;gap:.6rem;flex-wrap:wrap;
+}
+.hd-left{display:flex;align-items:center;gap:.55rem;}
+.hd-icon{
+  width:34px;height:34px;border-radius:9px;flex-shrink:0;
+  background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.22);
+  display:flex;align-items:center;justify-content:center;
+  font-size:.95rem;font-weight:900;color:var(--cyan);
+}
+.hd-name{font-size:1rem;font-weight:900;color:#fff;}
+.hd-sub{font-size:.58rem;color:var(--text2);}
+
+/* Live mini prices in header */
+.hd-prices{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;}
+.hd-price-item{
+  display:flex;align-items:center;gap:.3rem;
+  background:rgba(255,255,255,.04);border:1px solid var(--border);
+  border-radius:7px;padding:.18rem .5rem;font-size:.62rem;
+  transition:background .2s;
+}
+.hd-price-item .label{color:var(--text3);}
+.hd-price-item .val{font-weight:700;}
+.hd-price-item .chg{font-size:.55rem;}
+.spark-mini{display:inline-block;vertical-align:middle;margin-right:2px;}
+
+.hd-right{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;}
+.live-badge{
+  display:flex;align-items:center;gap:.35rem;
+  background:rgba(0,255,136,.07);border:1px solid rgba(0,255,136,.18);
+  border-radius:20px;padding:.2rem .6rem;font-size:.6rem;font-weight:700;color:var(--green);
+}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1.4s ease-in-out infinite;}
+
+/* Connection status */
+.conn-status{display:flex;align-items:center;gap:.3rem;font-size:.58rem;color:var(--text3);}
+.conn-dot{width:6px;height:6px;border-radius:50%;}
+.conn-ok{background:var(--green);}
+.conn-warn{background:var(--yellow);}
+.conn-err{background:var(--red);}
+
+.btn{
+  display:flex;align-items:center;gap:.3rem;
+  padding:.28rem .6rem;border-radius:7px;font-size:.62rem;font-weight:700;
+  border:1px solid;transition:all .2s;
+}
+.btn-refresh{background:rgba(0,212,255,.07);border-color:rgba(0,212,255,.22);color:var(--cyan);}
+.btn-refresh:hover{background:rgba(0,212,255,.15);}
+.btn-settings{background:rgba(255,255,255,.04);border-color:var(--border2);color:var(--text2);}
+.btn-settings:hover{background:rgba(255,255,255,.09);color:#fff;}
+.spin{animation:spin .7s linear infinite;display:inline-block;}
+.cd-txt{font-size:.57rem;color:var(--text3);}
+
+/* ══ TICKER ══ */
+.ticker-wrap{
+  background:rgba(255,51,51,.05);border:1px solid rgba(255,51,51,.16);
+  border-radius:8px;overflow:hidden;display:flex;align-items:center;
+}
+.t-label{
+  flex-shrink:0;background:var(--red);color:#fff;
+  font-size:.58rem;font-weight:900;padding:.32rem .7rem;
+  margin-left:.6rem;border-radius:4px;letter-spacing:.04em;
+}
+.t-track{flex:1;overflow:hidden;padding:.28rem 0;}
+.t-inner{display:flex;white-space:nowrap;animation:rtl 90s linear infinite;}
+.t-inner:hover{animation-play-state:paused;}
+.t-item{padding:0 1.6rem;font-size:.66rem;color:var(--text);}
+@keyframes rtl{0%{transform:translateX(-50%);}100%{transform:translateX(0);}}
+
+/* ══ MAIN ══ */
+.main{padding:.5rem;display:flex;flex-direction:column;gap:.5rem;}
+
+/* ══ STATS ROW ══ */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.4rem;}
+.stat-card{
+  background:var(--bg3);border:1px solid var(--border);border-radius:11px;
+  padding:.5rem .7rem;display:flex;flex-direction:column;gap:.12rem;
+  transition:border-color .2s;
+}
+.stat-card:hover{border-color:var(--border3);}
+.sl{font-size:.56rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;}
+.sv{font-size:1.2rem;font-weight:900;line-height:1.1;transition:color .3s;}
+.ss{font-size:.56rem;color:var(--text2);}
+.c-red{color:var(--red);}
+.c-orange{color:var(--orange);}
+.c-yellow{color:var(--yellow);}
+.c-green{color:var(--green);}
+.c-cyan{color:var(--cyan);}
+.c-gold{color:var(--gold);}
+.pos{color:var(--green);}
+.neg{color:var(--red);}
+.neu{color:var(--text2);}
+
+/* ══ API PANEL ══ */
+.api-panel{background:var(--bg3);border:1px solid rgba(0,212,255,.18);border-radius:11px;overflow:hidden;}
+.api-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.45rem .75rem;border-bottom:1px solid var(--border);cursor:pointer;
+}
+.api-hdr:hover{background:rgba(255,255,255,.02);}
+.api-body{padding:.75rem;display:none;}
+.api-body.open{display:block;animation:fadeIn .25s ease;}
+.api-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.55rem;}
+.af{display:flex;flex-direction:column;gap:.25rem;}
+.af label{font-size:.6rem;color:var(--text2);font-weight:600;}
+.af input{
+  background:rgba(0,0,0,.35);border:1px solid var(--border2);
+  border-radius:7px;padding:.38rem .65rem;font-size:.63rem;color:var(--text);
+  outline:none;transition:border-color .2s;width:100%;direction:ltr;text-align:left;
+}
+.af input:focus{border-color:var(--cyan);}
+.af .hint{font-size:.53rem;color:var(--text3);}
+.api-actions{display:flex;gap:.45rem;margin-top:.65rem;flex-wrap:wrap;}
+.btn-save{background:rgba(0,255,136,.09);border:1px solid rgba(0,255,136,.22);color:var(--green);padding:.3rem .9rem;border-radius:7px;font-size:.63rem;font-weight:700;}
+.btn-save:hover{background:rgba(0,255,136,.16);}
+.btn-test{background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.18);color:var(--cyan);padding:.3rem .9rem;border-radius:7px;font-size:.63rem;font-weight:700;}
+.api-msg{font-size:.58rem;padding:.28rem .5rem;border-radius:5px;margin-top:.3rem;}
+.api-msg.ok{background:rgba(0,255,136,.09);color:var(--green);}
+.api-msg.err{background:rgba(255,51,51,.09);color:var(--red);}
+.api-msg.info{background:rgba(0,212,255,.07);color:var(--cyan);}
+
+/* ══ GOLD PANEL ══ */
+.gold-wrap{
+  background:linear-gradient(135deg,rgba(245,197,24,.055) 0%,var(--bg3) 55%);
+  border:1px solid rgba(245,197,24,.22);border-radius:11px;overflow:hidden;
+}
+.gold-hdr{
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.4rem;
+  padding:.45rem .75rem;border-bottom:1px solid rgba(245,197,24,.13);
+}
+.gold-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:0;}
+.gk{
+  padding:.55rem .75rem;border-left:1px solid rgba(245,197,24,.1);
+  display:flex;flex-direction:column;gap:.18rem;transition:background .2s;
+}
+.gk:last-child{border-left:none;}
+.gk:hover{background:rgba(245,197,24,.04);}
+.gk-lbl{font-size:.57rem;color:rgba(245,197,24,.55);}
+.gk-price{font-size:1.05rem;font-weight:900;color:var(--gold);transition:color .3s;}
+.gk-unit{font-size:.56rem;color:var(--text3);}
+.gk-chg{font-size:.58rem;font-weight:700;}
+.gold-foot{
+  font-size:.53rem;color:var(--text3);padding:.28rem .75rem;
+  border-top:1px solid rgba(245,197,24,.09);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.3rem;
+}
+
+/* Sparkline SVG */
+.sparkline{overflow:visible;}
+.spark-line{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;}
+.spark-area{opacity:.15;}
+.usd-badge{
+  display:flex;align-items:center;gap:.4rem;
+  background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.15);
+  border-radius:7px;padding:.2rem .6rem;font-size:.62rem;
+}
+
+/* ══ SECTION LABELS ══ */
+.sec-lbl{
+  font-size:.66rem;font-weight:700;color:var(--text2);
+  padding:.15rem .1rem;display:flex;align-items:center;gap:.38rem;
+}
+.sec-lbl::before{content:'';display:block;width:3px;height:13px;background:var(--cyan);border-radius:2px;}
+
+/* ══ MAP ══ */
+.map-wrap{background:var(--bg3);border:1px solid var(--border);border-radius:11px;overflow:hidden;}
+.ph{display:flex;align-items:center;justify-content:space-between;padding:.42rem .72rem;border-bottom:1px solid var(--border);}
+.pt{font-size:.7rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:.38rem;}
+.pb{font-size:.56rem;font-weight:700;padding:.09rem .4rem;border-radius:4px;background:rgba(255,255,255,.05);color:var(--text2);}
+.mc{position:relative;width:100%;background:#0d1117;min-height:420px;}
+.mc svg{width:100%;height:auto;display:block;min-height:420px;}
+.ml{
+  position:absolute;top:.45rem;left:.45rem;
+  background:rgba(4,10,8,.88);border:1px solid var(--border);
+  border-radius:6px;padding:.38rem .52rem;font-size:.54rem;
+  display:flex;flex-direction:column;gap:.2rem;
+}
+.lr{display:flex;align-items:center;gap:.32rem;color:var(--text2);}
+.ld{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.lrect{width:8px;height:8px;flex-shrink:0;transform:rotate(45deg);}
+.mctrl{position:absolute;bottom:.45rem;left:.45rem;display:flex;flex-direction:column;gap:.2rem;}
+.mbtn{
+  width:25px;height:25px;background:rgba(8,18,14,.93);border:1px solid var(--border2);
+  border-radius:5px;color:var(--text2);font-size:.78rem;
+  display:flex;align-items:center;justify-content:center;transition:all .2s;
+}
+.mbtn:hover{background:rgba(22,45,35,.95);color:#fff;}
+.mtt{
+  position:absolute;background:rgba(4,10,8,.97);border:1px solid var(--border2);
+  border-radius:7px;padding:.4rem .6rem;font-size:.6rem;color:var(--text);
+  max-width:220px;pointer-events:none;z-index:50;display:none;
+  box-shadow:0 4px 18px rgba(0,0,0,.55);
+}
+.mtt strong{font-size:.63rem;}
+.ttl{opacity:.7;display:block;margin-top:2px;}
+
+/* ══ PANELS ══ */
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(265px,1fr));gap:.5rem;}
+.panel{background:var(--bg3);border:1px solid var(--border);border-radius:11px;overflow:hidden;display:flex;flex-direction:column;}
+.pbody{flex:1;overflow-y:auto;max-height:290px;}
+
+.ni{padding:.42rem .72rem;border-bottom:1px solid rgba(26,53,40,.4);display:flex;flex-direction:column;gap:.16rem;transition:background .15s;}
+.ni:hover{background:rgba(255,255,255,.025);}
+.ni:last-child{border-bottom:none;}
+.ni-t{font-size:.65rem;line-height:1.55;color:var(--text);}
+.ni-t a:hover{color:var(--cyan);}
+.ni-m{display:flex;align-items:center;gap:.4rem;font-size:.56rem;color:var(--text3);flex-wrap:wrap;}
+.ni-src{color:var(--cyan);font-weight:600;}
+.tag{padding:.09rem .32rem;border-radius:3px;font-size:.52rem;font-weight:700;}
+.tr{background:rgba(255,51,51,.13);color:var(--red);}
+.to{background:rgba(255,119,34,.13);color:var(--orange);}
+.ty{background:rgba(255,204,0,.13);color:var(--yellow);}
+.tc{background:rgba(0,212,255,.09);color:var(--cyan);}
+.tg{background:rgba(0,255,136,.09);color:var(--green);}
+.tp{background:rgba(170,68,255,.09);color:var(--purple);}
+.tgold{background:rgba(245,197,24,.09);color:var(--gold);}
+.tv3{background:rgba(0,255,136,.12);color:var(--green);}
+.tv2{background:rgba(255,204,0,.12);color:var(--yellow);}
+.tv1{background:rgba(255,119,34,.1);color:var(--orange);}
+.lmsg{padding:.9rem;text-align:center;font-size:.61rem;color:var(--text3);}
+.emsg{padding:.9rem;text-align:center;font-size:.61rem;color:var(--red);opacity:.7;}
+
+/* ══ VERIFICATION AGENT ══ */
+.agent-wrap{background:var(--bg3);border:1px solid rgba(0,212,255,.22);border-radius:11px;overflow:hidden;}
+.agent-bar{
+  display:flex;align-items:center;gap:.45rem;
+  padding:.3rem .55rem;background:rgba(0,212,255,.04);border-radius:7px;margin:.5rem;
+}
+.agent-dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);animation:blink 1.2s ease-in-out infinite;}
+.vl{display:flex;flex-direction:column;gap:.25rem;max-height:200px;overflow-y:auto;padding:0 .5rem .5rem;}
+.vi{padding:.38rem .55rem;border-radius:7px;display:flex;flex-direction:column;gap:.13rem;border:1px solid;}
+.vi.vh{background:rgba(0,255,136,.04);border-color:rgba(0,255,136,.14);}
+.vi.vm{background:rgba(255,204,0,.03);border-color:rgba(255,204,0,.11);}
+.vi.vl2{background:rgba(255,119,34,.03);border-color:rgba(255,119,34,.09);}
+.vi-t{font-size:.63rem;color:var(--text);line-height:1.45;}
+.vi-t a:hover{color:var(--cyan);}
+.vi-m{display:flex;align-items:center;gap:.38rem;font-size:.55rem;color:var(--text3);}
+.asub{font-size:.66rem;font-weight:700;color:var(--text2);padding:.38rem .5rem .15rem;}
+
+/* ══ TV CHANNELS ══ */
+.tv-wrap{background:var(--bg3);border:1px solid var(--border);border-radius:11px;overflow:hidden;}
+.tv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.45rem;padding:.6rem;}
+.tv-card{
+  background:var(--bg2);border:1px solid var(--border);border-radius:9px;
+  padding:.55rem .45rem;text-align:center;transition:all .2s;
+}
+.tv-card:hover{border-color:var(--border3);background:rgba(255,255,255,.035);transform:translateY(-1px);}
+.tv-card a{display:flex;flex-direction:column;align-items:center;gap:.28rem;}
+.tv-logo{width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;margin:0 auto;}
+.tv-name{font-size:.62rem;font-weight:700;color:var(--text);}
+.tv-lang{font-size:.53rem;color:var(--text3);}
+.tv-live{display:flex;align-items:center;gap:.22rem;font-size:.53rem;font-weight:700;color:var(--red);}
+
+/* ══ SITUATION ══ */
+.sit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(228px,1fr));gap:.5rem;}
+.sit{background:var(--bg3);border:1px solid var(--border);border-radius:11px;padding:.7rem;}
+.sit-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:.45rem;}
+.sit-title{font-size:.7rem;font-weight:900;color:#fff;}
+.lvl{font-size:.54rem;font-weight:700;padding:.12rem .46rem;border-radius:4px;}
+.lc{background:rgba(255,51,51,.18);color:var(--red);border:1px solid rgba(255,51,51,.28);}
+.lh{background:rgba(255,119,34,.18);color:var(--orange);border:1px solid rgba(255,119,34,.28);}
+.le{background:rgba(255,204,0,.18);color:var(--yellow);border:1px solid rgba(255,204,0,.28);}
+.ll{background:rgba(0,255,136,.09);color:var(--green);border:1px solid rgba(0,255,136,.18);}
+.sit-sub{font-size:.57rem;color:var(--text2);margin-bottom:.45rem;}
+.sit-tags{display:flex;flex-wrap:wrap;gap:.22rem;margin-bottom:.45rem;}
+.st{font-size:.54rem;padding:.1rem .35rem;border-radius:4px;background:rgba(255,255,255,.045);color:var(--text2);}
+.sit-news{display:flex;flex-direction:column;gap:.22rem;max-height:130px;overflow-y:auto;}
+.sni{font-size:.59rem;line-height:1.5;color:var(--text);padding:.2rem .28rem;border-radius:4px;background:rgba(255,255,255,.022);}
+.sni a:hover{color:var(--cyan);}
+.semp{font-size:.57rem;color:var(--text3);padding:.35rem;}
+
+/* ══ ENERGY ══ */
+.energy-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:.5rem;}
+.mcard{background:var(--bg3);border:1px solid var(--border);border-radius:11px;overflow:hidden;}
+.mrow{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.36rem .72rem;border-bottom:1px solid rgba(26,53,40,.35);
+}
+.mrow:last-child{border-bottom:none;}
+.mname{font-size:.65rem;color:var(--text);}
+.mvals{display:flex;align-items:center;gap:.5rem;}
+.mprice{font-size:.68rem;font-weight:700;transition:color .3s;}
+.mchg{font-size:.58rem;font-weight:700;}
+.chrow{padding:.4rem .72rem;border-bottom:1px solid rgba(26,53,40,.35);display:flex;flex-direction:column;gap:.15rem;}
+.chrow:last-child{border-bottom:none;}
+.chtop{display:flex;align-items:center;justify-content:space-between;}
+.chname{font-size:.65rem;font-weight:600;color:var(--text);}
+.chsub{font-size:.56rem;color:var(--text3);}
+
+/* ══ FOOTER ══ */
+footer{
+  margin-top:.4rem;border-top:1px solid var(--border);
+  padding:.65rem 1rem;display:flex;align-items:center;justify-content:space-between;
+  font-size:.56rem;color:var(--text3);flex-wrap:wrap;gap:.35rem;
+}
+.data-sources{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;}
+.ds-badge{background:rgba(0,212,255,.07);border:1px solid rgba(0,212,255,.14);border-radius:5px;padding:.1rem .38rem;font-size:.52rem;color:var(--cyan);}
+
+@media(max-width:640px){
+  .hd-prices{display:none;}
+  .grid2,.sit-grid,.energy-grid{grid-template-columns:1fr;}
+  .gold-grid{grid-template-columns:1fr 1fr;}
+  .tv-grid{grid-template-columns:repeat(auto-fill,minmax(105px,1fr));}
+}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ════ HEADER ════ -->
+<header id="hdr">
+  <div class="hd-left">
+    <div class="hd-icon">ن</div>
+    <div>
+      <div class="hd-name">نظرة</div>
+      <div class="hd-sub">الشرق الأوسط — بيانات حية</div>
+    </div>
+    <!-- Live mini prices in header -->
+    <div class="hd-prices" id="hd-prices">
+      <div class="hd-price-item"><span class="label">ذهب 21</span><span class="val c-gold" id="hp-g21">—</span><span class="chg" id="hp-g21c"></span></div>
+      <div class="hd-price-item"><span class="label">USD/EGP</span><span class="val c-cyan" id="hp-usd">—</span></div>
+      <div class="hd-price-item"><span class="label">برنت</span><span class="val c-yellow" id="hp-oil">—</span><span class="chg" id="hp-oilc"></span></div>
+      <div class="hd-price-item"><span class="label">XAU</span><span class="val c-gold" id="hp-xau">—</span></div>
+    </div>
+  </div>
+  <div class="hd-right">
+    <div class="conn-status"><span class="conn-dot conn-warn" id="conn-dot"></span><span id="conn-txt">جاري الاتصال...</span></div>
+    <div class="live-badge"><span class="live-dot"></span>مباشر</div>
+    <span class="cd-txt">تحديث: <strong id="cd">يدوي</strong></span>
+    <button class="btn btn-refresh" id="rfbtn" onclick="manualRefresh()">
+      <span id="ri">⟳</span> تحديث
+    </button>
+    <button class="btn btn-settings" onclick="toggleApi()">⚙ API</button>
+    <span style="font-size:.56rem;color:var(--text3);">🕐 <span id="clk"></span></span>
+  </div>
+</header>
+
+<main class="main">
+
+<!-- ════ API SETTINGS ════ -->
+<div class="api-panel">
+  <div class="api-hdr" onclick="toggleApi()">
+    <div class="pt">⚙ إعدادات API — أدخل مفاتيحك لتفعيل البيانات الحية الكاملة</div>
+    <span id="api-arrow" style="color:var(--text2);">▼</span>
+  </div>
+  <div class="api-body" id="api-body">
+    <div class="api-grid">
+      <div class="af">
+        <label>🥇 GoldAPI.io — أسعار الذهب الحية (مجاني)</label>
+        <input type="password" id="k-gold" placeholder="goldapi-XXXXXXXXXXXXXXXX"/>
+        <span class="hint">→ <a href="https://www.goldapi.io" target="_blank" style="color:var(--cyan);">goldapi.io</a> · سجّل واحصل على مفتاح مجاني فوراً</span>
+      </div>
+      <div class="af">
+        <label>📰 NewsAPI.org — أخبار إضافية (مجاني)</label>
+        <input type="password" id="k-news" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"/>
+        <span class="hint">→ <a href="https://newsapi.org" target="_blank" style="color:var(--cyan);">newsapi.org</a> · 100 طلب يومياً مجاناً</span>
+      </div>
+      <div class="af">
+        <label>💱 سعر الصرف — open.er-api.com (مجاني بلا مفتاح ✅)</label>
+        <input type="text" value="يعمل تلقائياً — لا يحتاج مفتاح" readonly style="opacity:.5;cursor:default;"/>
+        <span class="hint">✅ يعمل مباشرة — دقة عالية</span>
+      </div>
+      <div class="af">
+        <label>🛢️ النفط — Yahoo Finance عبر Proxy (مجاني ✅)</label>
+        <input type="text" value="يعمل تلقائياً — corsproxy.io" readonly style="opacity:.5;cursor:default;"/>
+        <span class="hint">✅ يعمل بدون مفتاح</span>
+      </div>
+    </div>
+    <div class="api-actions">
+      <button class="btn-save" onclick="saveKeys()">💾 حفظ وتشغيل</button>
+      <button class="btn-test" onclick="testKeys()">🔍 اختبار المفاتيح</button>
+    </div>
+    <div id="api-msg"></div>
+  </div>
+</div>
+
+<!-- ════ TICKER ════ -->
+<div class="ticker-wrap">
+  <div class="t-label">عاجل</div>
+  <div class="t-track"><div class="t-inner" id="ticker">
+    <span class="t-item">🔴 جاري تحميل الأخبار العاجلة من مصادر متعددة...</span>
+    <span class="t-item">🔴 جاري تحميل الأخبار العاجلة من مصادر متعددة...</span>
+  </div></div>
+</div>
+
+<!-- ════ STATS ════ -->
+<div class="stats-row">
+  <div class="stat-card"><div class="sl">ذهب عيار 21 (مصر)</div><div class="sv c-gold" id="s-g21">—</div><div class="ss" id="s-g21s">جنيه / جرام</div></div>
+  <div class="stat-card"><div class="sl">دولار / جنيه</div><div class="sv c-cyan" id="s-usd">—</div><div class="ss" id="s-usds">سعر الصرف الحي</div></div>
+  <div class="stat-card"><div class="sl">نفط برنت</div><div class="sv c-yellow" id="s-oil">—</div><div class="ss" id="s-oils">دولار / برميل</div></div>
+  <div class="stat-card"><div class="sl">ذهب XAU/USD</div><div class="sv c-gold" id="s-xau">—</div><div class="ss">دولار / أوقية</div></div>
+  <div class="stat-card"><div class="sl">مناطق نزاع</div><div class="sv c-red">6</div><div class="ss">غزة · اليمن · سوريا · السودان</div></div>
+  <div class="stat-card"><div class="sl">مستوى التهديد</div><div class="sv c-red">حرج</div><div class="ss">الشرق الأوسط</div></div>
+</div>
+
+<!-- ════ MAP ════ -->
+<div class="sec-lbl" id="map-section">🗺 خريطة الوضع المباشر — الشرق الأوسط</div>
+<div class="map-wrap">
+  <div class="ph">
+    <div class="pt"><span style="width:7px;height:7px;border-radius:50%;background:var(--red);animation:blink 1.4s ease-in-out infinite;display:inline-block;"></span>رادار النزاعات المباشر</div>
+    <span style="font-size:.56rem;color:var(--text3);">اضغط على أي نقطة للتفاصيل والطقس</span>
+  </div>
+  <div class="mc" id="mc">
+    <svg id="msvg" viewBox="0 0 900 520"></svg>
+    <div class="ml">
+      <div class="lr"><span class="ld" style="background:var(--red);"></span>نزاع حرج</div>
+      <div class="lr"><span class="ld" style="background:var(--orange);"></span>توتر عالي</div>
+      <div class="lr"><span class="ld" style="background:var(--yellow);"></span>مرتفع</div>
+      <div class="lr"><span class="ld" style="background:var(--green);"></span>منخفض</div>
+      <div class="lr"><span class="lrect" style="background:var(--cyan);"></span>اختناق بحري</div>
+      <div class="lr"><span class="ld" style="background:#ff0;"></span>موقع نووي</div>
+      <div class="lr"><span class="ld" style="background:var(--purple);"></span>قاعدة عسكرية</div>
+    </div>
+    <div class="mctrl">
+      <button class="mbtn" onclick="mzIn()">+</button>
+      <button class="mbtn" onclick="mzOut()">−</button>
+      <button class="mbtn" onclick="mzRst()">⟲</button>
+    </div>
+    <div class="mtt" id="mtt"></div>
+  </div>
+</div>
+
+<!-- ════ GOLD PANEL ════ -->
+<div id="gold-section"></div>
+<div class="gold-wrap">
+  <div class="gold-hdr">
+    <div class="pt" style="color:var(--gold);">🥇 أسعار الذهب في مصر — تحديث كل 30 ثانية</div>
+    <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;">
+      <div class="usd-badge"><span style="color:var(--text3);">💵 الدولار:</span><strong id="usd-val">—</strong><span style="color:var(--text3);">جنيه</span></div>
+      <div class="usd-badge"><span style="color:var(--text3);">📊 XAU:</span><strong id="xau-val" style="color:var(--gold);">—</strong><span style="color:var(--text3);">$/oz</span></div>
+      <span style="font-size:.55rem;color:var(--text3);">آخر تحديث: <span id="gold-time">—</span></span>
+      <!-- Mini sparkline -->
+      <svg class="sparkline" width="80" height="28" id="gold-spark">
+        <polyline id="gold-spark-line" class="spark-line" style="stroke:var(--gold);" points="0,14"/>
+        <polyline id="gold-spark-area" class="spark-area spark-line" style="stroke:none;fill:var(--gold);" points="0,28 0,14"/>
+      </svg>
+    </div>
+  </div>
+  <div class="gold-grid">
+    <div class="gk"><div class="gk-lbl">عيار 24 (خالص)</div><div class="gk-price" id="g24">—</div><div class="gk-unit">جنيه / جرام</div><div class="gk-chg" id="g24c"></div></div>
+    <div class="gk"><div class="gk-lbl">عيار 21 ★ الأكثر شيوعاً</div><div class="gk-price" id="g21">—</div><div class="gk-unit">جنيه / جرام</div><div class="gk-chg" id="g21c"></div></div>
+    <div class="gk"><div class="gk-lbl">عيار 18</div><div class="gk-price" id="g18">—</div><div class="gk-unit">جنيه / جرام</div><div class="gk-chg" id="g18c"></div></div>
+    <div class="gk"><div class="gk-lbl">عيار 14</div><div class="gk-price" id="g14">—</div><div class="gk-unit">جنيه / جرام</div><div class="gk-chg" id="g14c"></div></div>
+    <div class="gk"><div class="gk-lbl">جنيه ذهب (8 جرام × عيار21)</div><div class="gk-price" id="gjny">—</div><div class="gk-unit">جنيه مصري</div><div class="gk-chg" id="gjnyc"></div></div>
+    <div class="gk"><div class="gk-lbl">أوقية XAU — بالجنيه</div><div class="gk-price" id="goz">—</div><div class="gk-unit">جنيه مصري</div><div class="gk-chg" id="gozc"></div></div>
+  </div>
+  <div class="gold-foot">
+    <span id="gold-src">المصدر: metals.live + open.er-api.com · هامش سوق الصاغة المصري: 3%</span>
+    <span id="gold-calc-note" style="color:var(--text3);">الاحتساب: XAU/31.1035 × USD/EGP × 1.03</span>
+  </div>
+</div>
+
+<!-- ════ NEWS ════ -->
+<div class="sec-lbl" id="news-section">📰 الأخبار المباشرة — 5 مصادر عربية</div>
+<div class="grid2">
+  <div class="panel"><div class="ph"><div class="pt">🔴 أخبار عاجلة</div><span class="pb" id="c-brk">0</span></div><div class="pbody" id="f-brk"><div class="lmsg">جاري التحميل...</div></div></div>
+  <div class="panel"><div class="ph"><div class="pt">🇵🇸 فلسطين وغزة</div><span class="pb" id="c-gz">0</span></div><div class="pbody" id="f-gz"><div class="lmsg">جاري التحميل...</div></div></div>
+  <div class="panel"><div class="ph"><div class="pt">🇮🇷 إيران والنووي</div><span class="pb" id="c-ir">0</span></div><div class="pbody" id="f-ir"><div class="lmsg">جاري التحميل...</div></div></div>
+  <div class="panel"><div class="ph"><div class="pt">🇾🇪 اليمن والخليج</div><span class="pb" id="c-ym">0</span></div><div class="pbody" id="f-ym"><div class="lmsg">جاري التحميل...</div></div></div>
+  <div class="panel"><div class="ph"><div class="pt">🇸🇾 سوريا ولبنان</div><span class="pb" id="c-sy">0</span></div><div class="pbody" id="f-sy"><div class="lmsg">جاري التحميل...</div></div></div>
+  <div class="panel"><div class="ph"><div class="pt">🔍 تحليل وتقارير</div><span class="pb" id="c-in">0</span></div><div class="pbody" id="f-in"><div class="lmsg">جاري التحميل...</div></div></div>
+</div>
+
+<!-- ════ VERIFICATION AGENT ════ -->
+<div class="sec-lbl" id="verify-section">🤖 عميل التحقق الذكي من الأخبار</div>
+<div class="agent-wrap">
+  <div class="ph">
+    <div class="pt" style="color:var(--cyan);">🤖 تحليل متعدد المصادر — درجة الموثوقية</div>
+    <span style="font-size:.58rem;color:var(--text3);">يعمل تلقائياً بعد كل تحديث للأخبار</span>
+  </div>
+  <div class="agent-bar"><span class="agent-dot"></span><span id="agent-info" style="font-size:.6rem;color:var(--text2);">في انتظار الأخبار...</span></div>
+  <div class="grid2" style="padding:.5rem .5rem 0;">
+    <div><div class="asub">✅ موثّق (3+ مصادر)</div><div class="vl" id="vl-h"><div class="lmsg">—</div></div></div>
+    <div><div class="asub">⚠️ مؤكد جزئياً (مصدران)</div><div class="vl" id="vl-m"><div class="lmsg">—</div></div></div>
+    <div><div class="asub">❓ منفرد (مصدر واحد)</div><div class="vl" id="vl-l"><div class="lmsg">—</div></div></div>
+  </div>
+  <div style="height:.5rem;"></div>
+</div>
+
+<!-- ════ LIVE TV ════ -->
+<div class="sec-lbl" id="tv-section">📺 القنوات الإخبارية المباشرة</div>
+<div class="tv-wrap">
+  <div class="ph"><div class="pt">📡 قنوات مباشرة — اضغط للمشاهدة</div><div class="live-badge"><span class="live-dot"></span>على الهواء</div></div>
+  <div class="tv-grid">
+    <div class="tv-card"><a href="https://www.aljazeera.net/watch/" target="_blank"><div class="tv-logo" style="background:rgba(0,100,200,.13);">📡</div><div class="tv-name">الجزيرة</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://live.alarabiya.net/" target="_blank"><div class="tv-logo" style="background:rgba(200,0,0,.1);">📺</div><div class="tv-name">العربية</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://www.skynewsarabia.com/live" target="_blank"><div class="tv-logo" style="background:rgba(0,120,200,.1);">🌐</div><div class="tv-name">سكاي نيوز</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://www.france24.com/ar/tv-en-direct" target="_blank"><div class="tv-logo" style="background:rgba(0,50,150,.13);">🇫🇷</div><div class="tv-name">فرانس 24</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://arabic.rt.com/on_air/" target="_blank"><div class="tv-logo" style="background:rgba(200,0,0,.1);">🎙</div><div class="tv-name">RT عربي</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://www.almayadeen.net/live" target="_blank"><div class="tv-logo" style="background:rgba(180,50,0,.1);">📻</div><div class="tv-name">الميادين</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://www.bbc.com/arabic/media-42986440" target="_blank"><div class="tv-logo" style="background:rgba(180,0,0,.1);">🔴</div><div class="tv-name">BBC عربي</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://www.alhurra.com/live-tv" target="_blank"><div class="tv-logo" style="background:rgba(0,60,150,.1);">🕊</div><div class="tv-name">الحرة</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://www.euronews.com/ar/live" target="_blank"><div class="tv-logo" style="background:rgba(0,80,160,.1);">🌍</div><div class="tv-name">يورونيوز</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://www.trt.net.tr/arabic/canli-yayin" target="_blank"><div class="tv-logo" style="background:rgba(200,0,50,.1);">🇹🇷</div><div class="tv-name">TRT عربي</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://arabic.cnn.com/" target="_blank"><div class="tv-logo" style="background:rgba(200,0,0,.1);">📰</div><div class="tv-name">CNN عربي</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+    <div class="tv-card"><a href="https://alarab.co.uk/live" target="_blank"><div class="tv-logo" style="background:rgba(100,0,150,.1);">📱</div><div class="tv-name">العرب</div><div class="tv-lang">عربي</div><div class="tv-live"><span class="live-dot" style="width:5px;height:5px;background:var(--red);animation:blink 1.4s ease-in-out infinite;"></span>مباشر</div></a></div>
+  </div>
+</div>
+
+<!-- ════ SITUATION ════ -->
+<div class="sec-lbl" id="sit-section">🚨 بطاقات الوضع الراهن</div>
+<div class="sit-grid">
+  <div class="sit" style="border-color:rgba(255,51,51,.25);">
+    <div class="sit-hdr"><div class="sit-title">🇵🇸 غزة وفلسطين</div><span class="lvl lc">حرج</span></div>
+    <div class="sit-sub">عمليات عسكرية مستمرة — كارثة إنسانية</div>
+    <div class="sit-tags"><span class="st">قصف</span><span class="st">حصار</span><span class="st">رفح</span><span class="st">الضفة</span></div>
+    <div class="sit-news" id="sit-gz"><div class="semp">جاري التحميل...</div></div>
+  </div>
+  <div class="sit" style="border-color:rgba(255,119,34,.22);">
+    <div class="sit-hdr"><div class="sit-title">🇮🇷 إيران — النووي</div><span class="lvl lh">خطر عالي</span></div>
+    <div class="sit-sub">تخصيب نووي · وكلاء مسلحون · عقوبات</div>
+    <div class="sit-tags"><span class="st">نطنز</span><span class="st">الحرس الثوري</span><span class="st">حزب الله</span></div>
+    <div class="sit-news" id="sit-ir"><div class="semp">جاري التحميل...</div></div>
+  </div>
+  <div class="sit" style="border-color:rgba(255,204,0,.2);">
+    <div class="sit-hdr"><div class="sit-title">🇾🇪 اليمن — الحوثيون</div><span class="lvl lh">خطر عالي</span></div>
+    <div class="sit-sub">هجمات البحر الأحمر · تهديد الملاحة</div>
+    <div class="sit-tags"><span class="st">باب المندب</span><span class="st">صواريخ</span><span class="st">التحالف</span></div>
+    <div class="sit-news" id="sit-ym"><div class="semp">جاري التحميل...</div></div>
+  </div>
+  <div class="sit" style="border-color:rgba(170,68,255,.2);">
+    <div class="sit-hdr"><div class="sit-title">🇸🇾 سوريا — التحول</div><span class="lvl le">مرتفع</span></div>
+    <div class="sit-sub">مرحلة ما بعد الأسد · إعادة البناء</div>
+    <div class="sit-tags"><span class="st">دمشق</span><span class="st">إدلب</span><span class="st">الأكراد</span></div>
+    <div class="sit-news" id="sit-sy"><div class="semp">جاري التحميل...</div></div>
+  </div>
+</div>
+
+<!-- ════ ENERGY ════ -->
+<div class="sec-lbl" id="energy-section">⚡ الطاقة والأسواق ونقاط الاختناق</div>
+<div class="energy-grid">
+  <div class="mcard">
+    <div class="ph"><div class="pt">🛢️ النفط والغاز والأسواق</div><span class="pb" style="color:var(--yellow);">حي</span></div>
+    <div>
+      <div class="mrow"><span class="mname">نفط برنت (BZ=F)</span><div class="mvals"><span class="mprice c-yellow" id="m-brent">—</span><span class="mchg" id="mc-brent"></span></div></div>
+      <div class="mrow"><span class="mname">نفط WTI (CL=F)</span><div class="mvals"><span class="mprice c-yellow" id="m-wti">—</span><span class="mchg" id="mc-wti"></span></div></div>
+      <div class="mrow"><span class="mname">الغاز الطبيعي</span><div class="mvals"><span class="mprice c-cyan" id="m-gas">—</span><span class="mchg" id="mc-gas"></span></div></div>
+      <div class="mrow"><span class="mname">ذهب XAU/USD</span><div class="mvals"><span class="mprice c-gold" id="m-gold">—</span><span class="mchg" id="mc-gold"></span></div></div>
+      <div class="mrow"><span class="mname">فضة XAG/USD</span><div class="mvals"><span class="mprice c-cyan" id="m-silver">—</span><span class="mchg" id="mc-silver"></span></div></div>
+      <div class="mrow"><span class="mname">دولار / جنيه مصري</span><div class="mvals"><span class="mprice c-cyan" id="m-usdegp">—</span><span class="mchg neu">جنيه</span></div></div>
+      <div class="mrow"><span class="mname">يورو / جنيه مصري</span><div class="mvals"><span class="mprice c-cyan" id="m-euregp">—</span><span class="mchg neu">جنيه</span></div></div>
+    </div>
+  </div>
+  <div class="mcard">
+    <div class="ph"><div class="pt">⬥ نقاط الاختناق البحرية</div></div>
+    <div>
+      <div class="chrow"><div class="chtop"><span class="chname">مضيق هرمز</span><span class="lvl lh">خطر</span></div><div class="chsub">21% من نفط العالم — تهديد إيراني</div></div>
+      <div class="chrow"><div class="chtop"><span class="chname">باب المندب</span><span class="lvl lc">حرج</span></div><div class="chsub">بوابة البحر الأحمر — هجمات حوثية متواصلة</div></div>
+      <div class="chrow"><div class="chtop"><span class="chname">قناة السويس</span><span class="lvl le">مرتفع</span></div><div class="chsub">12% تجارة عالمية — تراجع بسبب الأزمة</div></div>
+      <div class="chrow"><div class="chtop"><span class="chname">جبل طارق</span><span class="lvl ll">طبيعي</span></div><div class="chsub">مدخل المتوسط — بلا قيود</div></div>
+    </div>
+  </div>
+  <div class="mcard">
+    <div class="ph"><div class="pt">🌡️ طقس عواصم المنطقة</div></div>
+    <div id="wx-panel"><div class="lmsg">جاري التحميل...</div></div>
+  </div>
+</div>
+
+</main>
+
+<footer>
+  <span>نظرة — لوحة مراقبة مفتوحة المصدر</span>
+  <div class="data-sources">
+    <span style="color:var(--text3);">مصادر البيانات:</span>
+    <span class="ds-badge">metals.live</span>
+    <span class="ds-badge">open.er-api.com</span>
+    <span class="ds-badge">Yahoo Finance</span>
+    <span class="ds-badge">open-meteo.com</span>
+    <span class="ds-badge">RSS2JSON</span>
+    <span class="ds-badge">الجزيرة · BBC · RT · الأناضول · المونيتور</span>
+  </div>
+</footer>
+
+<!-- ═══════════════════════════════════════════════
+     JAVASCRIPT — LIVE ENGINE
+════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+/* ──── CONSTANTS ──── */
+const TROY = 31.1035;
+const LOCAL_MARGIN = 1.03; // Egyptian gold market premium ~3%
+const RSS2J = 'https://api.rss2json.com/v1/api.json?rss_url=';
+const PROXIES = ['https://corsproxy.io/?','https://api.allorigins.win/raw?url='];
+const WX = {0:'☀️',1:'🌤️',2:'⛅',3:'☁️',45:'🌫️',51:'🌧️',61:'🌧️',65:'🌧️',71:'🌨️',80:'🌧️',95:'⛈️'};
+
+/* ──── STATE ──── */
+let goldOzUSD = null, usdEGP = null;
+let prevGold = null, prevOil = null;
+let goldHistory = []; // for sparkline
+let allNews = [];
+let cdSec = 30; // price refresh every 30s
+let newsCdSec = 180; // news refresh every 3min
+let timerIntv = null, priceIntv = null, newsIntv = null;
+const KEYS = {
+  gold: localStorage.getItem('nzk_gold')||'',
+  news: localStorage.getItem('nzk_news')||'',
+};
+
+/* ──── UTILS ──── */
+function $(id){ return document.getElementById(id); }
+function fmtEGP(v){ return v.toLocaleString('ar-EG',{maximumFractionDigits:0}); }
+function fmtUSD(v){ return '$'+v.toFixed(2); }
+function chgHTML(now,prev,decimals=2){
+  if(!prev||!now||isNaN(now)||isNaN(prev)) return '';
+  const d = now-prev, p = (d/prev)*100;
+  const cls = p>=0?'pos':'neg';
+  const arrow = p>=0?'↑':'↓';
+  return `<span class="${cls}">${arrow} ${Math.abs(p).toFixed(decimals)}%</span>`;
+}
+function chgHTMLabs(now,prev){
+  if(!prev||!now) return '';
+  const d = now-prev;
+  const cls = d>=0?'pos':'neg';
+  return `<span class="${cls}">${d>=0?'+':''}${d.toFixed(2)}</span>`;
+}
+function setEl(id,val){ const e=$(id); if(e) e.textContent=val; }
+function setHTML(id,val){ const e=$(id); if(e) e.innerHTML=val; }
+function flashEl(el,dir){
+  el.classList.remove('flash-up','flash-down');
+  void el.offsetWidth;
+  el.classList.add(dir==='up'?'flash-up':'flash-down');
+}
+function relTime(d){
+  try{
+    const m=(Date.now()-new Date(d).getTime())/60000;
+    if(m<1) return 'الآن';
+    if(m<60) return `${Math.round(m)} د`;
+    if(m<1440) return `${Math.round(m/60)} س`;
+    return `${Math.round(m/1440)} ي`;
+  }catch{ return ''; }
+}
+
+/* ──── CLOCK ──── */
+function updateClock(){
+  const e=$('clk');
+  if(e) e.textContent = new Date().toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+setInterval(updateClock,1000); updateClock();
+
+/* ──── COUNTDOWN TIMER ──── */
+function startTimer(){
+  clearInterval(timerIntv);
+  let s=cdSec, ns=newsCdSec;
+  timerIntv = setInterval(()=>{
+    s--; ns--;
+    if(s<=0){ s=cdSec; loadPrices(); }
+    if(ns<=0){ ns=newsCdSec; loadNews(); }
+    const m=Math.floor(s/60), sc=s%60;
+    setEl('cd', m+':'+(sc<10?'0':'')+sc);
+  },1000);
+}
+
+/* ──── MANUAL REFRESH ──── */
+function manualRefresh(){
+  const btn=$('rfbtn'), ri=$('ri');
+  btn.disabled=true;
+  ri.classList.add('spin');
+  Promise.all([loadPrices(), loadNews()]).finally(()=>{
+    btn.disabled=false;
+    ri.classList.remove('spin');
+  });
+}
+
+/* ──── CONNECTION STATUS ──── */
+function setConn(state, msg){
+  const dot=$('conn-dot'), txt=$('conn-txt');
+  if(!dot||!txt) return;
+  dot.className='conn-dot conn-'+state;
+  txt.textContent = msg;
+}
+
+/* ──── API PANEL ──── */
+function toggleApi(){
+  const body=$('api-body'), arrow=$('api-arrow');
+  const open=body.classList.toggle('open');
+  arrow.textContent=open?'▲':'▼';
+}
+function saveKeys(){
+  KEYS.gold=($('k-gold').value||'').trim();
+  KEYS.news=($('k-news').value||'').trim();
+  localStorage.setItem('nzk_gold',KEYS.gold);
+  localStorage.setItem('nzk_news',KEYS.news);
+  showApiMsg('✅ تم الحفظ — جاري تشغيل البيانات...','ok');
+  loadPrices();
+}
+function showApiMsg(msg,type){
+  const e=$('api-msg');
+  if(e) e.innerHTML=`<div class="api-msg ${type}">${msg}</div>`;
+}
+async function testKeys(){
+  showApiMsg('🔍 جاري الاختبار...','info');
+  const msgs=[];
+  if(KEYS.gold){
+    try{
+      const r=await fetch('https://www.goldapi.io/api/XAU/USD',{headers:{'x-access-token':KEYS.gold}});
+      const d=await r.json();
+      msgs.push(d.price?`✅ GoldAPI: $${d.price.toFixed(2)}`:'❌ GoldAPI: مفتاح خاطئ');
+    }catch(e){ msgs.push('❌ GoldAPI: '+e.message); }
+  } else msgs.push('⚠️ GoldAPI: لم يُدخل');
+  try{
+    const r=await fetch('https://open.er-api.com/v6/latest/USD');
+    const d=await r.json();
+    msgs.push(d.rates?.EGP?`✅ سعر الصرف: ${d.rates.EGP.toFixed(2)} EGP/USD`:'❌ سعر الصرف: فشل');
+  }catch{ msgs.push('❌ سعر الصرف: فشل'); }
+  try{
+    const r=await fetch('https://api.metals.live/v1/spot/gold');
+    const d=await r.json();
+    const p=d[0]?.price||d.price||d[0]?.XAU;
+    msgs.push(p?`✅ metals.live: $${(+p).toFixed(2)}`:'❌ metals.live: لا بيانات');
+  }catch{ msgs.push('❌ metals.live: فشل'); }
+  showApiMsg(msgs.join(' · '), msgs.some(m=>m.startsWith('✅'))?'ok':'err');
+}
+
+/* ──── GOLD SPARKLINE ──── */
+function updateSparkline(){
+  if(goldHistory.length<2) return;
+  const W=80,H=28;
+  const min=Math.min(...goldHistory), max=Math.max(...goldHistory);
+  const range=max-min||1;
+  const pts=goldHistory.map((v,i)=>{
+    const x=(i/(goldHistory.length-1))*W;
+    const y=H-((v-min)/range)*(H-4)-2;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const areaStart=`0,${H} `;
+  const areaEnd=` ${W},${H}`;
+  const line=$('gold-spark-line'), area=$('gold-spark-area');
+  if(line) line.setAttribute('points',pts);
+  if(area) area.setAttribute('points',areaStart+pts+areaEnd);
+}
+
+/* ──── FETCH WITH PROXY ──── */
+async function fetchWithProxy(url){
+  for(const px of PROXIES){
+    try{
+      const r=await fetch(px+encodeURIComponent(url));
+      if(!r.ok) continue;
+      const d=await r.json();
+      return d;
+    }catch{}
+  }
+  return null;
+}
+
+/* ──── GOLD PRICE ──── */
+async function fetchGoldPrice(){
+  // 1. Try GoldAPI.io with user key (most accurate)
+  if(KEYS.gold){
+    try{
+      const r=await fetch('https://www.goldapi.io/api/XAU/USD',{headers:{'x-access-token':KEYS.gold}});
+      const d=await r.json();
+      if(d.price) return {oz:d.price, prev:d.prev_close_price||d.price, src:'GoldAPI.io ✅'};
+    }catch{}
+  }
+  // 2. Try metals.live (free, no key)
+  try{
+    const r=await fetch('https://api.metals.live/v1/spot/gold');
+    const d=await r.json();
+    const p=d[0]?.price||d.price||d[0]?.XAU;
+    if(p) return {oz:+p, prev:(+p)*0.999, src:'metals.live ✅'};
+  }catch{}
+  // 3. Try Yahoo Finance for GC=F via proxy
+  try{
+    const d=await fetchWithProxy('https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=1d');
+    const meta=d?.chart?.result?.[0]?.meta;
+    if(meta?.regularMarketPrice) return {oz:meta.regularMarketPrice, prev:meta.previousClose||meta.regularMarketPrice, src:'Yahoo Finance ✅'};
+  }catch{}
+  return null;
+}
+
+/* ──── OIL PRICE ──── */
+async function fetchOilPrice(){
+  // Try Yahoo Finance for Brent (BZ=F) and WTI (CL=F)
+  const tryOil=async(sym)=>{
+    const d=await fetchWithProxy(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=5m&range=1d`);
+    const meta=d?.chart?.result?.[0]?.meta;
+    if(meta?.regularMarketPrice) return {price:meta.regularMarketPrice, prev:meta.previousClose||meta.regularMarketPrice};
+    return null;
+  };
+  const [brent,wti]=await Promise.all([tryOil('BZ=F'),tryOil('CL=F')]);
+  return {brent,wti};
+}
+
+/* ──── SILVER ──── */
+async function fetchSilver(){
+  try{
+    const r=await fetch('https://api.metals.live/v1/spot/silver');
+    const d=await r.json();
+    const p=d[0]?.price||d.price;
+    if(p) return +p;
+  }catch{}
+  return null;
+}
+
+/* ──── EXCHANGE RATES ──── */
+async function fetchRates(){
+  const r=await fetch('https://open.er-api.com/v6/latest/USD');
+  const d=await r.json();
+  return d.rates;
+}
+
+/* ──── UPDATE GOLD UI ──── */
+function updateGoldUI(oz, prevOz, rates, src){
+  const egp=rates?.EGP||49.5, eur=rates?.EUR||0.92;
+  const g=oz/TROY, gPrev=prevOz/TROY;
+  const g24=g*egp*LOCAL_MARGIN, g21=g*egp*LOCAL_MARGIN*21/24;
+  const g18=g*egp*LOCAL_MARGIN*18/24, g14=g*egp*LOCAL_MARGIN*14/24;
+  const gJny=g21*8, gOzEGP=oz*egp*LOCAL_MARGIN;
+  const p24=gPrev*egp*LOCAL_MARGIN, p21=gPrev*egp*LOCAL_MARGIN*21/24;
+
+  // Flash direction
+  const dir=(oz>prevOz)?'up':'down';
+
+  // Gold panel
+  const upd=(id,val,chgId,now,prev)=>{
+    const el=$(id);
+    if(el){ const old=el.textContent; el.textContent=val; if(old!==val&&old!=='—') flashEl(el,dir); }
+    setHTML(chgId,chgHTML(now,prev));
+  };
+  upd('g24',fmtEGP(g24)+' ج','g24c',g24,p24);
+  upd('g21',fmtEGP(g21)+' ج','g21c',g21,p21);
+  upd('g18',fmtEGP(g18)+' ج','g18c',g18,gPrev*egp*LOCAL_MARGIN*18/24);
+  upd('g14',fmtEGP(g14)+' ج','g14c',g14,gPrev*egp*LOCAL_MARGIN*14/24);
+  upd('gjny',fmtEGP(gJny)+' ج','gjnyc',gJny,p21*8);
+  upd('goz',fmtEGP(gOzEGP)+' ج','gozc',gOzEGP,prevOz*egp*LOCAL_MARGIN);
+
+  // USD and XAU display
+  setEl('usd-val',egp.toFixed(2));
+  setEl('xau-val',oz.toFixed(2));
+
+  // Stats row
+  const sg21=$('s-g21'); if(sg21){ sg21.textContent=fmtEGP(g21); flashEl(sg21,dir); }
+  setEl('s-usd',egp.toFixed(2));
+  setEl('s-usds','جنيه للدولار ↔ يورو: '+(egp/eur).toFixed(2));
+  const sxau=$('s-xau'); if(sxau){ sxau.textContent='$'+oz.toFixed(2); flashEl(sxau,dir); }
+
+  // Header mini prices
+  setEl('hp-g21', fmtEGP(g21)+' ج');
+  setHTML('hp-g21c', chgHTML(oz,prevOz));
+  setEl('hp-usd', egp.toFixed(2));
+  setEl('hp-xau', '$'+oz.toFixed(2));
+
+  // Markets panel
+  const mg=$('m-gold'); if(mg){ mg.textContent='$'+oz.toFixed(2); flashEl(mg,dir); }
+  setHTML('mc-gold',chgHTML(oz,prevOz));
+
+  // Exchange in markets
+  setEl('m-usdegp',egp.toFixed(2));
+  setEl('m-euregp',(egp/eur).toFixed(2));
+
+  // Timestamp & source
+  setEl('gold-time',new Date().toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit',second:'2-digit'}));
+  setEl('gold-src','المصدر: '+(src||'متعدد')+' · هامش الصاغة: 3%');
+  setEl('gold-calc-note','XAU='+oz.toFixed(2)+' ÷ 31.1 × '+egp.toFixed(2)+' × 1.03 = '+fmtEGP(g24)+'/جرام 24k');
+
+  // Sparkline history (keep last 30 readings)
+  goldHistory.push(oz);
+  if(goldHistory.length>30) goldHistory.shift();
+  updateSparkline();
+}
+
+/* ──── UPDATE OIL UI ──── */
+function updateOilUI(brent,wti){
+  if(brent){
+    const bo=$('m-brent'), sb=$('s-oil');
+    if(bo){ bo.textContent='$'+brent.price.toFixed(2); flashEl(bo,brent.price>brent.prev?'up':'down'); }
+    setHTML('mc-brent',chgHTML(brent.price,brent.prev));
+    if(sb){ sb.textContent='$'+brent.price.toFixed(2); }
+    setEl('s-oils',brent.price>brent.prev?'↑ ارتفع':'↓ انخفض');
+    setEl('hp-oil','$'+brent.price.toFixed(2));
+    setHTML('hp-oilc',chgHTML(brent.price,brent.prev));
+  }
+  if(wti){
+    const wo=$('m-wti'); if(wo){ wo.textContent='$'+wti.price.toFixed(2); flashEl(wo,wti.price>wti.prev?'up':'down'); }
+    setHTML('mc-wti',chgHTML(wti.price,wti.prev));
+  }
+}
+
+/* ──── LOAD PRICES ──── */
+async function loadPrices(){
+  setConn('warn','يتحقق من البيانات...');
+  try{
+    const [goldData, rates, {brent,wti}, silver] = await Promise.all([
+      fetchGoldPrice(), fetchRates(), fetchOilPrice(), fetchSilver()
+    ]);
+    if(goldData && rates){
+      updateGoldUI(goldData.oz, goldData.prev, rates, goldData.src);
+      setConn('ok','متصل ✅');
+    } else if(goldData){
+      updateGoldUI(goldData.oz, goldData.prev, {EGP:49.5}, goldData.src);
+      setConn('warn','ذهب ✅ · سعر الصرف ⚠️');
+    } else {
+      setConn('err','تعذّر جلب بيانات الذهب');
+    }
+    updateOilUI(brent,wti);
+    if(silver){
+      const ms=$('m-silver'); if(ms) ms.textContent='$'+silver.toFixed(2);
+    }
+    if(brent){ const mc=$('mc-brent'); if(mc) mc.innerHTML=chgHTML(brent.price,brent.prev); }
+    if(!brent&&!wti){ const mb=$('m-brent'),mw=$('m-wti'); if(mb) mb.textContent='تحقق من Proxy'; if(mw) mw.textContent='تحقق من Proxy'; }
+  }catch(e){
+    setConn('err','خطأ: '+e.message);
+    console.error('Price load error:',e);
+  }
+}
+
+/* ──── WEATHER ──── */
+async function loadWeather(){
+  const cities=[
+    {n:'القدس',la:31.77,lo:35.21},{n:'غزة',la:31.52,lo:34.46},
+    {n:'طهران',la:35.69,lo:51.39},{n:'صنعاء',la:15.35,lo:44.20},
+    {n:'دمشق',la:33.51,lo:36.29},{n:'بيروت',la:33.89,lo:35.50},
+    {n:'الرياض',la:24.69,lo:46.72},{n:'القاهرة',la:30.06,lo:31.24},
+    {n:'بغداد',la:33.34,lo:44.40},
+  ];
+  const results=await Promise.all(cities.map(async c=>{
+    try{
+      const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${c.la}&longitude=${c.lo}&current=temperature_2m,weather_code,wind_speed_10m&timezone=auto`);
+      const d=await r.json();
+      const t=d.current?.temperature_2m, wc=d.current?.weather_code, w=d.current?.wind_speed_10m;
+      return{n:c.n,t:t!=null?Math.round(t)+'°م':'—',ic:WX[wc]||'🌡️',w:w?Math.round(w)+' كم/س':'—'};
+    }catch{return{n:c.n,t:'—',ic:'🌡️',w:'—'};}
+  }));
+  const wp=$('wx-panel');
+  if(wp) wp.innerHTML=results.map(r=>`
+    <div class="mrow"><span class="mname">${r.ic} ${r.n}</span>
+    <div class="mvals"><span style="font-size:.7rem;font-weight:700;color:var(--yellow);">${r.t}</span><span style="font-size:.56rem;color:var(--text3);">${r.w}</span></div></div>`).join('');
+}
+
+/* ──── RSS FEEDS ──── */
+const FEEDS=[
+  'https://www.aljazeera.net/xml/rss/all.xml',
+  'https://feeds.bbci.co.uk/arabic/rss.xml',
+  'https://www.al-monitor.com/rss',
+  'https://arabic.rt.com/rss/',
+  'https://www.aa.com.tr/ar/rss/default?cat=arabic',
+];
+async function fetchFeed(url){
+  try{
+    const r=await fetch(RSS2J+encodeURIComponent(url)+'&count=25');
+    if(!r.ok) return null;
+    const d=await r.json();
+    return Array.isArray(d.items)?d.items:null;
+  }catch{return null;}
+}
+function getTag(t){
+  const lo=t.toLowerCase();
+  const checks=[
+    {w:['شهيد','قصف','غارة','انفجار','هجوم','اغتيال','مجزرة','ضربة'],c:'tr',l:'عاجل'},
+    {w:['توغل','معركة','عملية عسكرية','اعتقال'],c:'to',l:'عمليات'},
+    {w:['مفاوضات','وقف إطلاق','اتفاق','وساطة','محادثات'],c:'tc',l:'دبلوماسي'},
+    {w:['نووي','تخصيب','صاروخ','مسيّرة','سلاح'],c:'ty',l:'أمن'},
+    {w:['نزوح','لاجئ','إنساني','مساعدات','مجاعة'],c:'tp',l:'إنساني'},
+    {w:['نفط','غاز','برميل','أوبك','طاقة'],c:'tgold',l:'طاقة'},
+  ];
+  for(const c of checks)
+    if(c.w.some(w=>lo.includes(w))) return `<span class="tag ${c.c}">${c.l}</span>`;
+  return '';
+}
+function vBadge(s){
+  if(s>=3) return '<span class="tag tv3">موثّق ✓✓✓</span>';
+  if(s>=2) return '<span class="tag tv2">مؤكد ✓✓</span>';
+  return '<span class="tag tv1">منفرد</span>';
+}
+function renderItems(items,fid,cid,filt,scored={}){
+  const el=$(fid), cnt=$(cid);
+  if(!el) return;
+  if(!items){el.innerHTML='<div class="emsg">تعذّر التحميل</div>';return;}
+  const f=filt?items.filter(filt):items;
+  if(cnt) cnt.textContent=f.length;
+  if(!f.length){el.innerHTML='<div class="lmsg">لا توجد أخبار</div>';return;}
+  el.innerHTML=f.slice(0,15).map(i=>`
+    <div class="ni">
+      <div class="ni-t"><a href="${i.link||'#'}" target="_blank" rel="noopener">${i.title}</a></div>
+      <div class="ni-m"><span class="ni-src">${i.author||'مصدر'}</span><span>${relTime(i.pubDate)}</span>${getTag(i.title)}${vBadge(scored[i.title]||1)}</div>
+    </div>`).join('');
+}
+function renderSit(items,id,kws){
+  const el=$(id); if(!el) return;
+  const f=(items||[]).filter(i=>kws.some(k=>i.title.toLowerCase().includes(k)));
+  if(!f.length){el.innerHTML='<div class="semp">لا توجد أخبار ذات صلة</div>';return;}
+  el.innerHTML=f.slice(0,5).map(i=>`<div class="sni"><a href="${i.link||'#'}" target="_blank" rel="noopener">${i.title}</a></div>`).join('');
+}
+
+/* ──── VERIFICATION AGENT ──── */
+function runAgent(items){
+  if(!items.length) return {};
+  const stop=new Set(['في','من','على','إلى','مع','عن','هذا','هذه','التي','الذي','بعد','قبل','عند','بين','ضد','حول','خلال','أن','لأن','لكن','كان','كانت','وقال','قال','أكد']);
+  const kws=t=>t.split(/\s+/).map(w=>w.replace(/[،.,!؟?'"]/g,'')).filter(w=>w.length>3&&!stop.has(w));
+  const scored={};
+  items.forEach((a,i)=>{
+    const ka=kws(a.title); let m=0;
+    items.forEach((b,j)=>{if(i!==j&&kws(b.title).filter(k=>ka.includes(k)).length>=2)m++;});
+    scored[a.title]=Math.min(Math.floor(m/1.5)+1,5);
+  });
+  const high=[],mid=[],low=[];
+  const seen=new Set();
+  items.forEach(it=>{
+    const sc=scored[it.title]||1;
+    const key=kws(it.title).slice(0,2).join('|');
+    if(seen.has(key))return; seen.add(key);
+    if(sc>=3)high.push({...it,sc});
+    else if(sc>=2)mid.push({...it,sc});
+    else low.push({...it,sc});
+  });
+  const renderV=(id,list,cls)=>{
+    const el=$(id); if(!el) return;
+    if(!list.length){el.innerHTML='<div class="lmsg">—</div>';return;}
+    el.innerHTML=list.slice(0,7).map(it=>`
+      <div class="vi ${cls}">
+        <div class="vi-t"><a href="${it.link||'#'}" target="_blank" rel="noopener">${it.title}</a></div>
+        <div class="vi-m"><span class="${cls==='vh'?'c-green':cls==='vm'?'c-yellow':'c-orange'}">${'★'.repeat(it.sc)}</span><span>${it.author||'مصدر'}</span><span>${relTime(it.pubDate)}</span></div>
+      </div>`).join('');
+  };
+  renderV('vl-h',high,'vh'); renderV('vl-m',mid,'vm'); renderV('vl-l',low,'vl2');
+  setEl('agent-info',`تم تحليل ${items.length} خبراً — موثّق: ${high.length} · مؤكد: ${mid.length} · منفرد: ${low.length}`);
+  return scored;
+}
+
+/* ──── LOAD NEWS ──── */
+async function loadNews(){
+  const results=await Promise.all(FEEDS.map(fetchFeed));
+  const all=results.flatMap(r=>r||[]).sort((a,b)=>new Date(b.pubDate)-new Date(a.pubDate));
+  allNews=all;
+  const scored=runAgent(all);
+  const gk=kw=>it=>kw.some(k=>it.title.toLowerCase().includes(k));
+  const GZ=['غزة','فلسطين','حماس','رفح','نتنياهو','إسرائيل','احتلال','الضفة','الأقصى','gaza','palestine','hamas'];
+  const IR=['إيران','طهران','نووي','خامنئي','الحرس الثوري','iran','tehran','nuclear','irgc'];
+  const YM=['اليمن','الحوثي','البحر الأحمر','خليج عدن','السعودية','yemen','houthi','red sea','saudi'];
+  const SY=['سوريا','لبنان','دمشق','بيروت','حزب الله','syria','lebanon','damascus'];
+  renderItems(all,'f-brk','c-brk',null,scored);
+  renderItems(all,'f-gz','c-gz',gk(GZ),scored);
+  renderItems(all,'f-ir','c-ir',gk(IR),scored);
+  renderItems(all,'f-ym','c-ym',gk(YM),scored);
+  renderItems(all,'f-sy','c-sy',gk(SY),scored);
+  renderItems(results[2]||[],'f-in','c-in',null,scored);
+  renderSit(all,'sit-gz',GZ); renderSit(all,'sit-ir',IR);
+  renderSit(all,'sit-ym',YM); renderSit(all,'sit-sy',SY);
+  // Ticker
+  const inner=$('ticker');
+  if(inner&&all.length){
+    const h=all.slice(0,24).map(i=>`<span class="t-item">🔴 ${i.title}</span>`).join('');
+    inner.innerHTML=h+h;
+  }
+}
+
+/* ──── LOAD KEYS ──── */
+function loadKeysUI(){
+  if(KEYS.gold)$('k-gold').value=KEYS.gold;
+}
+
+/* ──── INIT — APIs called ONCE on load only ──── */
+loadKeysUI();
+loadPrices();   // prices loaded once; use manual refresh button to update
+loadNews();     // news loaded once
+loadWeather();  // weather loaded once
+// Auto-refresh is DISABLED by default — use the manual refresh button (⟳)
+// To re-enable auto-refresh, uncomment the line below:
+// startTimer();
+
+/* ════════════════════════════════════════════════
+   D3 MAP  (d3 + topojson loaded as <script> tags in <head>)
+════════════════════════════════════════════════ */
+(async()=>{
+  if(typeof d3==='undefined'||typeof topojson==='undefined'){
+    const el=$('mc');
+    if(el) el.innerHTML='<div style="color:#888;padding:2rem;text-align:center;font-size:.75rem;">⚠ تعذّر تحميل مكتبة الخريطة — تأكد من الاتصال بالإنترنت</div>';
+    return;
+  }
+  const feature=topojson.feature;
+  const W=900,H=520;
+  const cont=$('mc'), tt=$('mtt');
+  const svg=d3.select('#msvg').attr('viewBox',`0 0 ${W} ${H}`);
+  const g=svg.append('g');
+  const proj=d3.geoMercator().center([40,28]).scale(680).translate([W/2,H/2]);
+  const path=d3.geoPath().projection(proj);
+  const zoom=d3.zoom().scaleExtent([1,8]).filter(e=>e.type!=='wheel'&&e.type!=='dblclick').on('zoom',e=>g.attr('transform',e.transform.toString()));
+  svg.call(zoom);
+  window.mzIn=()=>svg.transition().duration(280).call(zoom.scaleBy,1.5);
+  window.mzOut=()=>svg.transition().duration(280).call(zoom.scaleBy,1/1.5);
+  window.mzRst=()=>svg.transition().duration(280).call(zoom.transform,d3.zoomIdentity);
+  const stt=(e,h)=>{tt.style.display='block';tt.innerHTML=h;mtt(e);};
+  const mtt=(e)=>{const r=cont.getBoundingClientRect();let x=e.clientX-r.left+14,y=e.clientY-r.top-14;if(x+235>W)x-=250;if(y<0)y=10;tt.style.left=x+'px';tt.style.top=y+'px';};
+  const htt=()=>tt.style.display='none';
+  /* Ocean background */
+  svg.append('rect').attr('width',W).attr('height',H).attr('fill','#0d1117');
+  try{
+    const world=await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(r=>r.json());
+    const countries=feature(world,world.objects.countries);
+    /* Countries highlighted as conflict/sanctioned */
+    const CID=[275,364,760,887,729,736,422,788,434]; // Palestine,Iran,Syria,Yemen,Sudan,Iraq,Lebanon,Tunisia,Jordan
+    g.selectAll('path.c').data(countries.features).join('path').attr('class','c').attr('d',path)
+      .attr('fill',d=>CID.includes(+d.id)?'#2a1010':'#1e1e1e')
+      .attr('stroke',d=>CID.includes(+d.id)?'#4a2020':'#2a2a2a').attr('stroke-width',.5)
+      .on('mouseenter',function(){ d3.select(this).attr('fill',function(d){ return CID.includes(+d.id)?'#3a1515':'#2a2a2a'; }); })
+      .on('mouseleave',function(){ d3.select(this).attr('fill',function(d){ return CID.includes(+d.id)?'#2a1010':'#1e1e1e'; }); });
+  }catch(e){ console.warn('Map countries load failed:',e); }
+  const grat=d3.geoGraticule().step([10,10]);
+  g.append('path').datum(grat).attr('d',path).attr('fill','none').attr('stroke','#1e1e1e').attr('stroke-width',.3).attr('stroke-dasharray','2,2');
+  [{n:'غزة',co:[[34.2,31.6],[34.6,31.6],[34.6,31.2],[34.2,31.2]],cl:'#ff4444'},
+   {n:'اليمن',co:[[42,19],[54,19],[54,12],[42,12]],cl:'#ff7722'},
+   {n:'سوريا',co:[[35,37],[42,37],[42,34],[35,34]],cl:'#ff7722'},
+   {n:'السودان',co:[[22,23],[38,23],[38,8],[22,8]],cl:'#ff6644'},
+   {n:'جنوب لبنان',co:[[35,34],[36.6,34],[36.6,33.1],[35,33.1]],cl:'#ff5533'},
+  ].forEach(z=>{g.append('path').datum({type:'Polygon',coordinates:[z.co]}).attr('d',path).attr('fill',z.cl).attr('fill-opacity',.18).attr('stroke',z.cl).attr('stroke-width',.8).attr('stroke-opacity',.5);});
+  [{n:'مضيق هرمز',la:26.5,lo:56.5,d:'21% من نفط العالم — تهديد إيراني'},
+   {n:'باب المندب',la:12.5,lo:43.3,d:'بوابة البحر الأحمر — هجمات حوثية'},
+   {n:'قناة السويس',la:30.0,lo:32.5,d:'12% من التجارة العالمية'},
+   {n:'بوسفور',la:41.1,lo:29.0,d:'مدخل البحر الأسود'},
+  ].forEach(cp=>{const [x,y]=proj([cp.lo,cp.la])||[0,0];if(!x||!y)return;const s=g.append('g').style('cursor','pointer');s.append('rect').attr('x',x-5).attr('y',y-5).attr('width',10).attr('height',10).attr('fill','#00d4ff').attr('opacity',.85).attr('transform',`rotate(45,${x},${y})`);s.append('text').attr('x',x+9).attr('y',y+3).attr('fill','#00d4ff').attr('font-size','7.5px').attr('font-family','Cairo,sans-serif').text(cp.n);s.append('circle').attr('cx',x).attr('cy',y).attr('r',14).attr('fill','transparent').on('mouseenter',e=>stt(e,`<strong style="color:#00d4ff">⬥ ${cp.n}</strong><span class="ttl">${cp.d}</span>`)).on('mousemove',mtt).on('mouseleave',htt);});
+  [{n:'نطنز',la:33.7,lo:51.7,d:'إيران — تخصيب اليورانيوم'},{n:'بوشهر',la:28.8,lo:50.9,d:'إيران — مفاعل نووي'},{n:'ديمونا',la:31.0,lo:35.1,d:'إسرائيل — منشأة نووية'},{n:'فوردو',la:34.9,lo:50.6,d:'إيران — تخصيب تحت الأرض'},].forEach(ns=>{const [x,y]=proj([ns.lo,ns.la])||[0,0];if(!x||!y)return;const s=g.append('g').style('cursor','pointer');s.append('circle').attr('cx',x).attr('cy',y).attr('r',2.5).attr('fill','#ff0');s.append('circle').attr('cx',x).attr('cy',y).attr('r',6).attr('fill','none').attr('stroke','#ff0').attr('stroke-width',1).attr('stroke-dasharray','3,2');s.append('circle').attr('cx',x).attr('cy',y).attr('r',14).attr('fill','transparent').on('mouseenter',e=>stt(e,`<strong style="color:#ff0">☢ ${ns.n}</strong><span class="ttl">${ns.d}</span>`)).on('mousemove',mtt).on('mouseleave',htt);});
+  [{n:'العديد',la:25.1,lo:51.3,d:'قاعدة العديد — CENTCOM'},{n:'عين الأسد',la:33.8,lo:42.4,d:'قاعدة جوية أمريكية — العراق'},{n:'إنجيرليك',la:37.0,lo:35.4,d:'قاعدة أمريكية — تركيا'},{n:'جيبوتي',la:11.5,lo:43.1,d:'قواعد أمريكية وصينية'},].forEach(mb=>{const [x,y]=proj([mb.lo,mb.la])||[0,0];if(!x||!y)return;const sp=`M${x},${y-5} L${x+1.5},${y-1.5} L${x+5},${y-1.5} L${x+2.5},${y+1} L${x+3.5},${y+5} L${x},${y+2.5} L${x-3.5},${y+5} L${x-2.5},${y+1} L${x-5},${y-1.5} L${x-1.5},${y-1.5} Z`;const s=g.append('g').style('cursor','pointer');s.append('path').attr('d',sp).attr('fill','#aa44ff').attr('opacity',.85);s.append('circle').attr('cx',x).attr('cy',y).attr('r',12).attr('fill','transparent').on('mouseenter',e=>stt(e,`<strong style="color:#aa44ff">★ ${mb.n}</strong><span class="ttl">${mb.d}</span>`)).on('mousemove',mtt).on('mouseleave',htt);});
+  const C={critical:'#ff4444',high:'#ff7722',elevated:'#ffaa00',low:'#44ff88'};
+  [{n:'غزة',la:31.5,lo:34.46,lv:'critical',d:'غزة — حرب وكارثة إنسانية'},{n:'تل أبيب',la:32.07,lo:34.78,lv:'high',d:'تل أبيب — قيادة عسكرية'},{n:'القدس',la:31.77,lo:35.21,lv:'high',d:'القدس — توتر متواصل'},{n:'طهران',la:35.69,lo:51.39,lv:'critical',d:'طهران — نووي وحرس ثوري'},{n:'صنعاء',la:15.35,lo:44.20,lv:'high',d:'صنعاء — الحوثيون'},{n:'دمشق',la:33.51,lo:36.29,lv:'elevated',d:'دمشق — مرحلة ما بعد الأسد'},{n:'بيروت',la:33.89,lo:35.50,lv:'elevated',d:'بيروت — أزمة وحزب الله'},{n:'الرياض',la:24.69,lo:46.72,lv:'elevated',d:'الرياض — قيادة التحالف'},{n:'بغداد',la:33.34,lo:44.40,lv:'elevated',d:'بغداد — ميليشيات ونفوذ إيراني'},{n:'القاهرة',la:30.06,lo:31.24,lv:'low',d:'القاهرة — وساطة في غزة'},{n:'أبوظبي',la:24.46,lo:54.37,lv:'low',d:'أبوظبي — استقرار إقليمي'},{n:'أنقرة',la:39.93,lo:32.86,lv:'elevated',d:'أنقرة — دور تركي متنامٍ'},{n:'عدن',la:12.79,lo:45.04,lv:'high',d:'عدن — ميناء استراتيجي'},{n:'الخرطوم',la:15.56,lo:32.53,lv:'critical',d:'الخرطوم — حرب أهلية'},{n:'طرابلس',la:32.90,lo:13.18,lv:'elevated',d:'طرابلس — انقسام ليبيا'},].forEach(h=>{const [x,y]=proj([h.lo,h.la])||[0,0];if(!x||!y)return;const col=C[h.lv],s=g.append('g').style('cursor','pointer');const p=s.append('circle').attr('cx',x).attr('cy',y).attr('r',5).attr('fill',col).attr('fill-opacity',.25);(function a(){p.attr('r',5).attr('opacity',.4).transition().duration(1900).attr('r',10).attr('opacity',.04).on('end',a);})();s.append('circle').attr('cx',x).attr('cy',y).attr('r',3).attr('fill',col);s.append('text').attr('x',x+6).attr('y',y+3).attr('fill',col).attr('font-size','7.5px').attr('font-family','Cairo,sans-serif').attr('font-weight','600').text(h.n);s.append('circle').attr('cx',x).attr('cy',y).attr('r',14).attr('fill','transparent').on('mouseenter',async e=>{const t=new Date().toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'});stt(e,`<strong style="color:${col}">${h.d}</strong><span class="ttl">🕐 ${t}</span>`);try{const wr=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${h.la}&longitude=${h.lo}&current=temperature_2m,weather_code&timezone=auto`);const wd=await wr.json();const tmp=wd.current?.temperature_2m,wc=wd.current?.weather_code;tt.innerHTML=`<strong style="color:${col}">${h.d}</strong><span class="ttl">🕐 ${t}</span><span class="ttl">${WX[wc]||'🌡️'} ${tmp!=null?Math.round(tmp):'-'}°م</span>`;}catch{}}).on('mousemove',mtt).on('mouseleave',htt);});
+  [{n:'البحر الأحمر',la:20,lo:37.5},{n:'الخليج العربي',la:26,lo:51},{n:'بحر العرب',la:15,lo:62},{n:'البحر المتوسط',la:35,lo:22},{n:'خليج عدن',la:12,lo:48},].forEach(l=>{const [x,y]=proj([l.lo,l.la])||[0,0];if(!x||!y)return;g.append('text').attr('x',x).attr('y',y).attr('fill','#3a5070').attr('font-size','8.5px').attr('font-family','Cairo,sans-serif').attr('text-anchor','middle').attr('opacity',.9).text(l.n);});
+})();
+</script>
+</body>
+</html>
